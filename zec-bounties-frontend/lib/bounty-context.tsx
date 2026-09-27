@@ -563,7 +563,9 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
 
       const data = await res.json();
 
-      // Update currentUser in state and localStorage
+      if (data.token) {
+        localStorage.setItem("authToken", data.token);
+      }
       setCurrentUser(data.user);
       localStorage.setItem("currentUser", JSON.stringify(data.user));
     } catch (error) {
