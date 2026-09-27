@@ -997,7 +997,7 @@ function RoleConversionPanel() {
                     {user.isRobin && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 px-1.5 py-0.5 rounded-full">
                         <Info className="w-2.5 h-2.5" />
-                        isRobin · team kept
+                        {/* isRobin · team kept */}
                       </span>
                     )}
                   </div>
