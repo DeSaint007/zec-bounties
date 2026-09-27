@@ -298,6 +298,20 @@ interface BountyContextType {
   ) => Promise<{ exportedAt: string }>;
   updateUserOfac: (userId: string, ofacVerified: boolean) => Promise<void>;
 
+  // Admin: move selected teamless bounties onto a chosen team
+  unassignedBounties: {
+    id: string;
+    title: string;
+    bountyAmount: number;
+    dateCreated: string;
+  }[];
+  unassignedBountiesLoading: boolean;
+  fetchUnassignedBounties: () => Promise<void>;
+  assignUnassignedBountiesToTeam: (
+    teamId: string,
+    bountyIds: string[],
+  ) => Promise<{ movedCount: number }>;
+
   // Teams
   teams: Team[];
   teamsLoading: boolean;
@@ -388,6 +402,16 @@ interface BountyContextType {
   convertUserToHunter: (
     userId: string,
   ) => Promise<{ success: boolean; deletedTeamIds: string[] }>;
+
+  convertUserRole: (
+    userId: string,
+    toRole: "HUNTER" | "TEAM" | "ADMIN",
+  ) => Promise<{
+    success: boolean;
+    fromRole: string;
+    toRole: string;
+    deletedTeamIds: string[];
+  }>;
 
   teamPaymentRecords: PaymentRecord[];
   fetchTeamPaymentRecords: (teamId: string) => Promise<void>;
@@ -523,6 +547,12 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     remaining: number;
     resetsAt: string;
   } | null>(null);
+
+  const [unassignedBounties, setUnassignedBounties] = useState<
+    { id: string; title: string; bountyAmount: number; dateCreated: string }[]
+  >([]);
+  const [unassignedBountiesLoading, setUnassignedBountiesLoading] =
+    useState(false);
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
@@ -3492,6 +3522,54 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     await fetchUsers();
   };
 
+  const fetchUnassignedBounties = async () => {
+    if (!currentUser || currentUser.role !== "ADMIN") return;
+    setUnassignedBountiesLoading(true);
+    try {
+      const res = await fetch(`${backendUrl}/api/bounties/unassigned`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to fetch unassigned bounties");
+      const data = await res.json();
+      setUnassignedBounties(data.bounties ?? []);
+    } catch (error) {
+      console.error("Failed to fetch unassigned bounties:", error);
+    } finally {
+      setUnassignedBountiesLoading(false);
+    }
+  };
+
+  const assignUnassignedBountiesToTeam = async (
+    teamId: string,
+    bountyIds: string[],
+  ): Promise<{ movedCount: number }> => {
+    if (!currentUser || currentUser.role !== "ADMIN") {
+      throw new Error("Unauthorized");
+    }
+    if (bountyIds.length === 0) return { movedCount: 0 };
+
+    const res = await fetch(
+      `${backendUrl}/api/bounties/unassigned/assign-team`,
+      {
+        method: "PATCH",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ teamId, bountyIds }),
+      },
+    );
+
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Failed to move bounties");
+
+    // Optimistic: drop the moved ones from local state rather than
+    // re-fetching the whole unassigned list.
+    setUnassignedBounties((prev) =>
+      prev.filter((b) => !bountyIds.includes(b.id)),
+    );
+    await fetchBounties();
+
+    return { movedCount: json.movedCount ?? bountyIds.length };
+  };
+
   // Populate user data in bounties
   const populatedBounties = useMemo(
     () =>
@@ -3673,6 +3751,56 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const convertUserRole = async (
+    userId: string,
+    toRole: "HUNTER" | "TEAM" | "ADMIN",
+  ): Promise<{
+    success: boolean;
+    fromRole: string;
+    toRole: string;
+    deletedTeamIds: string[];
+  }> => {
+    if (!currentUser || currentUser.role !== "ADMIN") {
+      throw new Error("Unauthorized");
+    }
+
+    const res = await fetch(`${backendUrl}/api/teams/convert-role/${userId}`, {
+      method: "PATCH",
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ toRole }),
+    });
+
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json.error || "Failed to convert user role");
+    }
+
+    const deletedTeamIds: string[] = json.deletedTeamIds ?? [];
+    if (deletedTeamIds.length > 0) {
+      setTeams((prev) => prev.filter((t) => !deletedTeamIds.includes(t.id)));
+    }
+
+    // Patch the users list in place rather than a full refetch — mirrors how
+    // "user_updated" WS events are handled elsewhere in this file.
+    setUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, role: toRole } : u)),
+    );
+    setNonAdminUsers((prev) =>
+      toRole === "ADMIN"
+        ? prev.filter((u) => u.id !== userId)
+        : prev.some((u) => u.id === userId)
+          ? prev.map((u) => (u.id === userId ? { ...u, role: toRole } : u))
+          : [...prev, { ...json.user }],
+    );
+
+    return {
+      success: true,
+      fromRole: json.fromRole,
+      toRole: json.toRole,
+      deletedTeamIds,
+    };
+  };
+
   const convertUserToHunter = async (
     userId: string,
   ): Promise<{ success: boolean; deletedTeamIds: string[] }> => {
@@ -3810,6 +3938,10 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         fetchExportCompleted,
         markBountiesExported,
         updateUserOfac,
+        unassignedBounties,
+        unassignedBountiesLoading,
+        fetchUnassignedBounties,
+        assignUnassignedBountiesToTeam,
         teams,
         teamsLoading,
         fetchTeams,
@@ -3865,6 +3997,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         teamSyncStatusError,
         fetchTeamSyncStatus,
         convertUserToHunter,
+        convertUserRole,
         authorizeTeamDuePayment,
         fetchTeamPaymentRecords,
         teamPaymentRecords,

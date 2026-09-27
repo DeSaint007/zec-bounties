@@ -1,0 +1,38 @@
+"use client";
+
+import { subscribeToPush } from "@/lib/pushNotifications";
+
+export default function PushTest() {
+  const handleEnable = async () => {
+    try {
+      const subscription = await subscribeToPush();
+
+      const token = localStorage.getItem("authToken");
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BACKEND_URL}/notifications/push/subscribe`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(subscription),
+        },
+      );
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Failed to save subscription: ${error}`);
+      }
+
+      console.log("Push subscription saved to backend");
+
+      console.log("SUCCESS! Push subscription:", subscription);
+    } catch (error) {
+      console.error("Push setup failed:", error);
+    }
+  };
+
+  return <button onClick={handleEnable}>Enable Notifications</button>;
+}
