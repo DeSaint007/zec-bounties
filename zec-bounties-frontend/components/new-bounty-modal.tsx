@@ -1,7 +1,8 @@
 "use client";
 
 import type React from "react";
-import { useState, useEffect } from "react";
+
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,6 +35,12 @@ interface CreateBountyFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
+type FieldErrors = {
+  title?: string;
+  category?: string;
+  reward?: string;
+  description?: string;
+};
 
 export function NewBountyModal({
   onSuccess,
@@ -57,17 +64,31 @@ export function NewBountyModal({
     category: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [errorSummary, setErrorSummary] = useState("");
+  const openerRef = useRef<HTMLElement | null>(null);
+  const clearFieldError = (field: keyof FieldErrors) => {
+  setFieldErrors((prev) => {
+    if (!prev[field]) return prev;
+
+    const next = { ...prev };
+    delete next[field];
+    return next;
+  });
+
+  setErrorSummary("");
+  };
 
   useEffect(() => {
-    if (open) fetchBountyQuota();
+  if (open) fetchBountyQuota();
   }, [open]);
 
   const isAdmin = currentUser?.role === "ADMIN";
   const atLimit =
-    !isAdmin && bountyQuota?.remaining !== null && bountyQuota?.remaining === 0;
+  !isAdmin && bountyQuota?.remaining !== null && bountyQuota?.remaining === 0;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+    const validateForm = () => {
+    const nextErrors: FieldErrors = {};
 
     if (atLimit) {
       toast.error("Weekly bounty limit reached", {
@@ -79,32 +100,47 @@ export function NewBountyModal({
     }
 
     if (!formData.title.trim()) {
-      toast.error("Title is required", {
-        description: "Please enter a title for the bounty.",
-      });
-      return;
+      nextErrors.title = "Enter a bounty title.";
     }
 
     if (!formData.category) {
-      toast.error("Category is required", {
-        description: "Please select a category.",
-      });
-      return;
+      nextErrors.category = "Select a category.";
     }
 
     if (!formData.bountyAmount || formData.bountyAmount <= 0) {
-      toast.error("Invalid reward amount", {
-        description: "Please enter a reward amount greater than 0.",
-      });
-      return;
+      nextErrors.reward = "Enter a reward amount greater than 0.";
     }
 
     if (!formData.description.trim()) {
-      toast.error("Description is required", {
-        description: "Please describe the bounty requirements.",
-      });
-      return;
+      nextErrors.description = "Describe the bounty requirements.";
     }
+
+    setFieldErrors(nextErrors);
+
+    const firstInvalid = (
+      ["title", "category", "reward", "description"] as (keyof FieldErrors)[]
+    ).find((field) => Boolean(nextErrors[field]));
+
+    if (firstInvalid) {
+      setErrorSummary(
+        "Please correct the highlighted fields before continuing."
+      );
+
+      requestAnimationFrame(() => {
+        document.getElementById(firstInvalid)?.focus();
+      });
+
+      return false;
+    }
+
+    setErrorSummary("");
+    return true;
+  };
+
+   const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) return;
 
     setIsSubmitting(true);
     try {
@@ -138,9 +174,27 @@ export function NewBountyModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[calc(100%-1.5rem)] max-w-xl overflow-y-auto overflow-x-hidden rounded-2xl border p-0 shadow-xl">
+      <DialogContent
+        className="max-h-[92vh] w-[calc(100%-1.5rem)] max-w-xl overflow-y-auto overflow-x-hidden rounded-2xl border p-0 shadow-xl"
+        onOpenAutoFocus={() => {
+          if (
+            document.activeElement instanceof HTMLElement &&
+            document.activeElement !== document.body
+          ) {
+            openerRef.current = document.activeElement;
+          }
+        }}
+        onCloseAutoFocus={(event) => {
+          if (!openerRef.current) return;
+
+          event.preventDefault();
+          openerRef.current.focus();
+          openerRef.current = null;
+        }}
+      >
         <form
           onSubmit={handleSubmit}
+          noValidate
           className="flex flex-col max-h-[70vh] imd:max-h-full min-w-0"
         >
           <DialogHeader className="space-y-3 border-b border-border px-5 py-5 text-left sam:px-6 sam:py-6">
@@ -155,8 +209,7 @@ export function NewBountyModal({
                 Provide the details for your technical challenge.
               </DialogDescription>
             </div>
-
-            {!isAdmin && bountyQuota && (
+                {!isAdmin && bountyQuota && (
               <div className="inline-flex w-fit items-center gap-2 rounded-full border bg-muted/50 px-3 py-1.5 text-xs font-medium text-muted-foreground">
                 <span
                   className={`h-2 w-2 rounded-full ${
@@ -172,7 +225,18 @@ export function NewBountyModal({
                   : "You've reached your weekly bounty limit."}
               </div>
             )}
-          </DialogHeader>
+
+           </DialogHeader>
+
+              {errorSummary && (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+                >
+                  {errorSummary}
+                </div>
+              )}
 
           <div className="grid gap-5 px-5 py-5 sam:gap-6 sam:px-6 sam:py-6">
             {/* Title */}
@@ -187,14 +251,22 @@ export function NewBountyModal({
               <Input
                 id="title"
                 value={formData.title}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, title: e.target.value }))
-                }
+                onChange={(e) => {
+                  setFormData((prev) => ({ ...prev, title: e.target.value }));
+                  clearFieldError("title");
+                }}
                 placeholder="Enter bounty title..."
                 autoComplete="off"
+                aria-invalid={Boolean(fieldErrors.title)}
+                aria-describedby={fieldErrors.title ? "title-error" : undefined}
                 required
                 className="h-11 rounded-xl"
               />
+              {fieldErrors.title && (
+                <p id="title-error" className="text-sm text-destructive">
+                  {fieldErrors.title}
+                </p>
+              )}
             </div>
 
             {/* Category + Reward */}
@@ -209,12 +281,20 @@ export function NewBountyModal({
                 </Label>
                 <Select
                   value={formData.category}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({ ...prev, category: value }))
-                  }
+                  onValueChange={(value) => {
+                    setFormData((prev) => ({ ...prev, category: value }));
+                    clearFieldError("category");
+                  }}
                   required
                 >
-                  <SelectTrigger id="category" className="h-11 rounded-xl">
+                  <SelectTrigger
+                    id="category"
+                    className="h-11 rounded-xl"
+                    aria-invalid={Boolean(fieldErrors.category)}
+                    aria-describedby={
+                      fieldErrors.category ? "category-error" : undefined
+                    }
+                  >
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
@@ -225,6 +305,11 @@ export function NewBountyModal({
                     ))}
                   </SelectContent>
                 </Select>
+                {fieldErrors.category && (
+                  <p id="category-error" className="text-sm text-destructive">
+                    {fieldErrors.category}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -241,16 +326,24 @@ export function NewBountyModal({
                   step="0.01"
                   min="0"
                   value={formData.bountyAmount}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setFormData((prev) => ({
                       ...prev,
                       bountyAmount: Number.parseFloat(e.target.value) || 0,
-                    }))
-                  }
+                    }));
+                    clearFieldError("reward");
+                  }}
                   placeholder="0.00"
+                  aria-invalid={Boolean(fieldErrors.reward)}
+                  aria-describedby={fieldErrors.reward ? "reward-error" : undefined}
                   required
                   className="h-11 rounded-xl"
                 />
+                {fieldErrors.reward && (
+                  <p id="reward-error" className="text-sm text-destructive">
+                    {fieldErrors.reward}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -280,23 +373,32 @@ export function NewBountyModal({
                 Description
               </Label>
               <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    description: e.target.value,
-                  }))
-                }
-                placeholder="Describe the bounty requirements, deliverables, and any specific instructions..."
-                rows={4}
-                className="min-h-[120px] w-full min-w-0 resize-none rounded-xl"
-                style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-                required
-              />
-            </div>
-          </div>
-
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      description: e.target.value,
+                    }));
+                    clearFieldError("description");
+                  }}
+                  placeholder="Describe the bounty requirements, deliverables, and any specific instructions..."
+                  rows={4}
+                  className="min-h-[120px] w-full min-w-0 resize-none rounded-xl"
+                  style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+                  aria-invalid={Boolean(fieldErrors.description)}
+                  aria-describedby={
+                    fieldErrors.description ? "description-error" : undefined
+                  }
+                  required
+                />
+                {fieldErrors.description && (
+                  <p id="description-error" className="text-sm text-destructive">
+                    {fieldErrors.description}
+                  </p>
+                )}
+                </div>
+                </div>
           <DialogFooter className="flex-col-reverse gap-3 border-t border-border px-5 py-4 imd:flex-row imd:items-center imd:justify-end sam:px-6">
             {onCancel && (
               <Button
