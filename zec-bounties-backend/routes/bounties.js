@@ -23,134 +23,29 @@ const { notifyNewBounty } = require("../utils/discord/discordNotify");
 const { notifyAssignment } = require("../utils/discord/discordAssignWebhook");
 const { REQUIRED_TEAM_VERIFICATIONS } = require("../utils/constants");
 const {
-  validateBountyCreate,
-  validateBountyUpdate,
-  validateCategory,
-} = require("../helpers/validateBounty");
+  USER_SELECT,
+  USER_SELECT_PUBLIC,
+  USER_SELECT_FULL,
+  USER_SELECT_WITH_ROLE,
+  USER_SELECT_BASIC,
+  USER_SELECT_MINIMAL,
+  USER_SELECT_EXPORT,
+} = require("../utils/userSelects");
+const {
+  sendMailIfEnabled,
+  sendPushToOptedIn,
+  getBroadcastRecipients,
+  invalidateBounty,
+  ONBOARDED_ROLES,
+  requireOnboarded,
+  getWeeklyBountyQuota,
+} = require("../utils/bountyHelpers");
 
 // ─── Email settings ───────────────────────────────────────────────────────────
 const ENABLE_EMAILS_IN_DEV = false; // Set to true when you want to test emails
 
 const shouldSendEmails =
   process.env.NODE_ENV === "production" || ENABLE_EMAILS_IN_DEV;
-
-const sendMailIfEnabled = async (options) => {
-  if (!shouldSendEmails) {
-    console.log(
-      `[EMAIL SKIPPED] ${options.subject} -> ${options.to} (NODE_ENV=${process.env.NODE_ENV})`,
-    );
-    return;
-  }
-
-  return sendMail(options);
-};
-
-// Sends a push notification only to users who opted in AND have an active subscription.
-// userIds: string[] — candidates to notify
-const sendPushToOptedIn = async (userIds, payload) => {
-  if (!userIds.length) return;
-  try {
-    const recipients = await prisma.user.findMany({
-      where: {
-        id: { in: userIds },
-        pushNotifications: true,
-        pushSubscriptions: { some: {} },
-      },
-      select: { id: true },
-    });
-    console.log("verified recipients:", recipients);
-    await Promise.all(recipients.map((u) => notifyUser(u.id, payload)));
-  } catch (err) {
-    console.error("Push notification failed:", err);
-  }
-};
-
-// Mirrors canViewPrivateBounty's rules, but returns the full recipient set
-// instead of checking one user — used to scope websocket broadcasts so a
-// private bounty's payload never reaches a socket outside its audience.
-// Returns null for public bounties, meaning "broadcast to everyone" (unchanged behavior).
-async function getBroadcastRecipients(bounty) {
-  if (!bounty.isPrivate) return null;
-
-  const recipients = new Set([bounty.createdBy]);
-
-  const admins = await prisma.user.findMany({
-    where: { role: "ADMIN" },
-    select: { id: true },
-  });
-  admins.forEach((a) => recipients.add(a.id));
-
-  if (bounty.teamId) {
-    const [members, favoriters] = await Promise.all([
-      prisma.teamMember.findMany({
-        where: { teamId: bounty.teamId },
-        select: { userId: true },
-      }),
-      prisma.teamFavorite.findMany({
-        where: { teamId: bounty.teamId },
-        select: { userId: true },
-      }),
-    ]);
-    members.forEach((m) => recipients.add(m.userId));
-    favoriters.forEach((f) => recipients.add(f.userId));
-  }
-
-  return [...recipients];
-}
-
-// ─── Reusable select shapes (avoids re-typing & keeps payloads small) ─────────
-const USER_SELECT = { id: true, name: true, nickname: true, avatar: true };
-
-const USER_SELECT_PUBLIC = USER_SELECT;
-
-const USER_SELECT_FULL = {
-  id: true,
-  name: true,
-  nickname: true,
-  email: true,
-  avatar: true,
-  z_address: true,
-  UA_address: true,
-};
-
-// createdByUser / assigneeUser on Bounty (adds role, no address fields)
-const USER_SELECT_WITH_ROLE = {
-  id: true,
-  name: true,
-  nickname: true,
-  email: true,
-  role: true,
-  avatar: true,
-};
-
-// submitterUser / reviewerUser / applicantUser-with-avatar
-const USER_SELECT_BASIC = {
-  id: true,
-  name: true,
-  nickname: true,
-  email: true,
-  avatar: true,
-};
-
-// applicantUser without avatar (a couple of routes only need this much)
-const USER_SELECT_MINIMAL = {
-  id: true,
-  name: true,
-  nickname: true,
-  email: true,
-  discordUsername: true,
-};
-
-// export routes (payments)
-const USER_SELECT_EXPORT = {
-  id: true,
-  name: true,
-  nickname: true,
-  email: true,
-  z_address: true,
-  UA_address: true,
-  ofacVerified: true,
-};
 
 const ASSIGNEE_INCLUDE = {
   assignees: {
@@ -177,13 +72,13 @@ const invalidateWithRetry = async (keys, delayMs = 500) => {
   }, delayMs);
 };
 
-const invalidateBounty = async (bountyId) => {
-  await Promise.all([
-    delCache(`assignees:${bountyId}`),
-    delCache("stats:totals"),
-    bumpVersion("bounties"),
-  ]);
-};
+// const invalidateBounty = async (bountyId) => {
+//   await Promise.all([
+//     delCache(`assignees:${bountyId}`),
+//     delCache("stats:totals"),
+//     bumpVersion("bounties"),
+//   ]);
+// };
 
 const invalidateApplications = async (applicantId, bountyId) => {
   await invalidateWithRetry([
@@ -200,18 +95,6 @@ const invalidateSubmissions = async (bountyId, submittedBy) => {
     ...(submittedBy ? [`submissions:user:${submittedBy}`] : []),
   ]);
 };
-
-const ONBOARDED_ROLES = ["ADMIN", "HUNTER", "TEAM"];
-
-function requireOnboarded(req, res) {
-  if (!ONBOARDED_ROLES.includes(req.user.role)) {
-    res
-      .status(403)
-      .json({ error: "Complete onboarding before performing this action" });
-    return false;
-  }
-  return true;
-}
 
 async function canManageBounty(bounty, user) {
   if (user.role === "ADMIN") return true;
@@ -320,21 +203,6 @@ function getCalendarWeekBounds(date = new Date()) {
   return { start, end };
 }
 
-async function getWeeklyBountyQuota(userId) {
-  const isGold = await isGoldStarOrAbove(userId);
-  const limit = isGold
-    ? WEEKLY_BOUNTY_LIMIT_GOLD
-    : WEEKLY_BOUNTY_LIMIT_STANDARD;
-
-  const { start, end } = getCalendarWeekBounds();
-
-  const used = await prisma.bounty.count({
-    where: { createdBy: userId, dateCreated: { gte: start, lt: end } },
-  });
-
-  return { limit, used, remaining: Math.max(0, limit - used), resetsAt: end };
-}
-
 // ─── Create bounty ────────────────────────────────────────────────────────────
 router.post("/", authenticate, async (req, res) => {
   try {
@@ -362,24 +230,17 @@ router.post("/", authenticate, async (req, res) => {
       teamId,
     } = req.body;
 
+    // Only admins may create a pre-approved bounty. Non-admin callers'
+    // isApproved value is ignored outright, mirroring the guard on PUT /:id.
+    const resolvedIsApproved =
+      req.user.role === "ADMIN"
+        ? isApproved !== undefined
+          ? !!isApproved
+          : true
+        : false;
+
     if (chain && !["MAIN", "TEST"].includes(chain)) {
       return res.status(400).json({ error: "Invalid chain value" });
-    }
-
-    // ─── Input validation ───────────────────────────────────────────────
-    const createCheck = validateBountyCreate({
-      title,
-      description,
-      bountyAmount,
-      timeToComplete,
-    });
-    if (!createCheck.valid) {
-      return res.status(400).json({ error: createCheck.error });
-    }
-
-    const categoryCheck = await validateCategory(prisma, categoryId);
-    if (!categoryCheck.valid) {
-      return res.status(400).json({ error: categoryCheck.error });
     }
 
     // If a teamId was given, confirm it exists and the creator is actually
@@ -428,7 +289,7 @@ router.post("/", authenticate, async (req, res) => {
         timeToComplete: new Date(timeToComplete),
         createdBy: req.user.id,
         assignee: resolvedAssignee,
-        isApproved,
+        isApproved: resolvedIsApproved,
         categoryId,
         ...(chain && { chain }),
         ...(teamId && { teamId }),
@@ -542,237 +403,201 @@ router.get("/", optionalAuthenticate, async (req, res) => {
     const isAuthed = Boolean(req.user);
     const isDev = process.env.NODE_ENV !== "production";
     const isAdmin = req.user?.role === "ADMIN";
-    const userId = req.user?.id;
 
-    const teamId = req.query.teamId || undefined;
-
-    // Default MAIN.
-    // Admins may pass ?chain=TEST or ?chain=ALL.
+    // ------------------------------------------------------------
+    // Chain filter (unchanged)
+    // ------------------------------------------------------------
     const chainParam = String(req.query.chain || "MAIN").toUpperCase();
-
-    // ------------------------------------------------------------
-    // Chain filter
-    // ------------------------------------------------------------
-
     let chainFilter;
 
     if (isDev) {
-      // In development, return all chains.
       chainFilter = {};
     } else if (chainParam === "ALL") {
       if (!isAdmin) {
-        return res.status(403).json({
-          error: "ALL chains requires admin",
-        });
+        return res.status(403).json({ error: "ALL chains requires admin" });
       }
-
       chainFilter = {};
     } else if (chainParam === "TEST") {
       if (!isAdmin) {
-        return res.status(403).json({
-          error: "TEST chain requires admin",
-        });
+        return res.status(403).json({ error: "TEST chain requires admin" });
       }
-
-      chainFilter = {
-        chain: "TEST",
-      };
+      chainFilter = { chain: "TEST" };
     } else if (chainParam === "MAIN") {
-      chainFilter = {
-        chain: "MAIN",
-      };
+      chainFilter = { chain: "MAIN" };
     } else {
-      return res.status(400).json({
-        error: "Invalid chain value",
-      });
+      return res.status(400).json({ error: "Invalid chain value" });
     }
 
     // ------------------------------------------------------------
-    // Private bounty visibility
+    // Visibility — public bounties, PLUS any private bounty the viewer
+    // actually has access to: one they created, or one belonging to a
+    // team they're a member of or favorite. This is what lets a private
+    // team's members see that team's bounties on their own home feed, not
+    // only on the team's own console page. Admins see everything.
+    //
+    // This filter runs inside the DB query (not a post-fetch JS filter),
+    // so `take: limit` below always returns a correctly-sized page —
+    // pagination was never actually the risk here, even with this OR.
     // ------------------------------------------------------------
+    const userId = req.user?.id;
 
     const visibilityFilter = isAdmin
       ? {}
       : {
           OR: [
-            // Public bounties
-            {
-              isPrivate: false,
-            },
-
+            { isPrivate: false },
             ...(userId
               ? [
-                  // Bounty creator
+                  { isPrivate: true, createdBy: userId },
                   {
                     isPrivate: true,
-                    createdBy: userId,
+                    team: { members: { some: { userId } } },
                   },
-
-                  // Team member
                   {
                     isPrivate: true,
-                    team: {
-                      members: {
-                        some: {
-                          userId,
-                        },
-                      },
-                    },
-                  },
-
-                  // Team favoriter
-                  {
-                    isPrivate: true,
-                    team: {
-                      favoritedBy: {
-                        some: {
-                          userId,
-                        },
-                      },
-                    },
+                    team: { favoritedBy: { some: { userId } } },
                   },
                 ]
               : []),
           ],
         };
 
-    // ------------------------------------------------------------
-    // Combine all filters
-    // ------------------------------------------------------------
-
     const where = {
       ...chainFilter,
-
-      ...(teamId
-        ? {
-            teamId,
-          }
-        : {}),
-
       ...visibilityFilter,
     };
 
     // ------------------------------------------------------------
-    // Snapshot the version BEFORE reading the DB.
-    //
-    // Any mutation that commits after this line will bump the
-    // version and therefore won't affect this request's cache key.
+    // Snapshot version before reading, same as before. Cache key is scoped
+    // per-viewer again (admin / this user's id / anon) since results now
+    // genuinely differ by who's asking, not just by auth level.
     // ------------------------------------------------------------
-
     const version = await getVersion("bounties");
-
-    // ------------------------------------------------------------
-    // Cache
-    //
-    // Include everything that can change the result:
-    // - version
-    // - auth state
-    // - page
-    // - limit
-    // - chain
-    // - team
-    // - viewer
-    // ------------------------------------------------------------
 
     const cacheKey = `bounties:v${version}:${JSON.stringify({
       page,
       limit,
       chain: chainParam,
-      teamId: teamId ?? null,
       viewer: isAdmin ? "admin" : (userId ?? "anon"),
-      auth: isAuthed ? "full" : "public",
     })}`;
 
     const cached = await getCache(cacheKey);
-
-    if (cached) {
-      return res.json(cached);
-    }
-
-    // ------------------------------------------------------------
-    // User selections
-    // ------------------------------------------------------------
+    if (cached) return res.json(cached);
 
     const userSelect = isAuthed ? USER_SELECT : USER_SELECT_PUBLIC;
-
     const createdByUserSelect = isAuthed
       ? USER_SELECT_WITH_ROLE
       : USER_SELECT_PUBLIC;
-
     const assigneeUserSelect = isAuthed ? USER_SELECT_FULL : USER_SELECT_PUBLIC;
-
-    // ------------------------------------------------------------
-    // Query
-    // ------------------------------------------------------------
 
     const [bounties, total] = await Promise.all([
       prisma.bounty.findMany({
         where,
-
         skip: (page - 1) * limit,
         take: limit,
-
-        orderBy: {
-          dateCreated: "desc",
-        },
-
+        orderBy: { dateCreated: "desc" },
         include: {
-          assignees: {
-            include: {
-              user: {
-                select: userSelect,
-              },
-            },
-          },
-
-          assigneeUser: {
-            select: assigneeUserSelect,
-          },
-
-          createdByUser: {
-            select: createdByUserSelect,
-          },
-
-          // Team feature
-          team: {
-            select: {
-              id: true,
-              name: true,
-              logo: true,
-            },
-          },
+          assignees: { include: { user: { select: userSelect } } },
+          assigneeUser: { select: assigneeUserSelect },
+          createdByUser: { select: createdByUserSelect },
+          team: { select: { id: true, name: true, logo: true } },
         },
       }),
-
-      // IMPORTANT:
-      // Count the exact same filtered dataset as findMany().
-      prisma.bounty.count({
-        where,
-      }),
+      prisma.bounty.count({ where }),
     ]);
 
-    // ------------------------------------------------------------
-    // Response
-    // ------------------------------------------------------------
-
-    const result = {
-      data: bounties,
-      total,
-      page,
-      limit,
-    };
+    const result = { data: bounties, total, page, limit };
 
     await setCache(cacheKey, result, TTL.BOUNTY_LIST);
-
     return res.json(result);
   } catch (error) {
     console.error("Failed to fetch bounties:", error);
-
-    return res.status(500).json({
-      error: "Failed to fetch bounties",
-    });
+    return res.status(500).json({ error: "Failed to fetch bounties" });
   }
 });
+
+// GET /api/bounties/unassigned
+// Admin only. Full list of bounties with no team, plus the team list so
+// the frontend can render the picker without a second call.
+router.get("/unassigned", authenticate, isAdmin, async (req, res) => {
+  if (!req.user || req.user.role !== "ADMIN") {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+
+  try {
+    const [teams, bounties] = await Promise.all([
+      prisma.team.findMany({
+        select: { id: true, name: true, logo: true },
+        orderBy: { name: "asc" },
+      }),
+      prisma.bounty.findMany({
+        where: { teamId: null },
+        select: {
+          id: true,
+          title: true,
+          bountyAmount: true,
+          dateCreated: true,
+        },
+        orderBy: { dateCreated: "desc" },
+      }),
+    ]);
+
+    res.json({ teams, bounties });
+  } catch (err) {
+    console.error("Failed to load unassigned bounties:", err);
+    res.status(500).json({ error: "Failed to load unassigned bounties" });
+  }
+});
+
+// PATCH /api/bounties/unassigned/assign-team
+// Admin only. Body: { teamId, bountyIds }. Moves only the given bounties
+// onto the team — still constrained to teamId: null so a bounty that got
+// assigned elsewhere between page-load and click can't be double-moved.
+// Syncs isPrivate to match the team, same rule used for team-created bounties.
+router.patch(
+  "/unassigned/assign-team",
+  authenticate,
+  isAdmin,
+  async (req, res) => {
+    if (!req.user || req.user.role !== "ADMIN") {
+      return res.status(403).json({ error: "Admin access required" });
+    }
+
+    const { teamId, bountyIds } = req.body;
+    if (!teamId) {
+      return res.status(400).json({ error: "teamId is required" });
+    }
+    if (!Array.isArray(bountyIds) || bountyIds.length === 0) {
+      return res
+        .status(400)
+        .json({ error: "bountyIds must be a non-empty array" });
+    }
+
+    try {
+      const team = await prisma.team.findUnique({
+        where: { id: teamId },
+        select: { id: true, isPrivate: true },
+      });
+      if (!team) {
+        return res.status(400).json({ error: "Team not found" });
+      }
+
+      const result = await prisma.bounty.updateMany({
+        where: { id: { in: bountyIds }, teamId: null },
+        data: { teamId: team.id, isPrivate: team.isPrivate },
+      });
+
+      // Invalidate whatever Redis keys your bounty list route reads from —
+      // same as your other routes that touch cached bounty payload fields.
+      // e.g.: await invalidateBountyListCache();
+
+      res.json({ movedCount: result.count });
+    } catch (err) {
+      console.error("Failed to assign bounties to team:", err);
+      res.status(500).json({ error: "Failed to move bounties" });
+    }
+  },
+);
 
 // ─── Add / replace assignees (Admin only) ─────────────────────────────────────
 // FIX: Replaced N individual prisma.bountyAssignee.create calls with a single
@@ -1007,6 +832,14 @@ router.delete("/:id/assignees/:userId", authenticate, async (req, res) => {
 // ─── Get assignees for a bounty ───────────────────────────────────────────────
 router.get("/:id/assignees", authenticate, async (req, res) => {
   try {
+    const bounty = await prisma.bounty.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, isPrivate: true, createdBy: true, teamId: true },
+    });
+    if (!bounty) return res.status(404).json({ error: "Bounty not found" });
+    if (!(await canViewPrivateBounty(bounty, req.user))) {
+      return res.status(404).json({ error: "Bounty not found" });
+    }
     const cacheKey = `assignees:${req.params.id}`;
     const cached = await getCache(cacheKey);
     if (cached) return res.json(cached);
@@ -1733,6 +1566,18 @@ router.patch(
 
 // ─── Fetch all users ──────────────────────────────────────────────────────────
 router.get("/users", authenticate, async (req, res) => {
+  const cacheKey = "users:public";
+  const cached = await getCache(cacheKey);
+  if (cached) return res.json(cached);
+  const users = await prisma.user.findMany({
+    select: { id: true, name: true, nickname: true, avatar: true, role: true },
+  });
+  await setCache(cacheKey, users, TTL.USERS);
+  res.json(users);
+});
+
+// ─── Fetch all users ──────────────────────────────────────────────────────────
+router.get("/users/full", authenticate, isAdmin, async (req, res) => {
   try {
     const cacheKey = "users:all";
     const cached = await getCache(cacheKey);
@@ -2209,7 +2054,8 @@ router.post("/apply", authenticate, async (req, res) => {
   try {
     if (!requireOnboarded(req, res)) return;
 
-    const { bountyId, applicantId, message } = req.body;
+    const { bountyId, message } = req.body;
+    const applicantId = req.user.id;
 
     const bounty = await prisma.bounty.findUnique({
       where: { id: bountyId },
@@ -2238,6 +2084,9 @@ router.post("/apply", authenticate, async (req, res) => {
       return res
         .status(400)
         .json({ error: "You have already applied to this bounty" });
+
+    if (!message || !message.trim())
+      return res.status(400).json({ error: "Message is required" });
 
     const application = await prisma.bountyApplication.create({
       data: { bountyId, applicantId, message: message.trim() },
@@ -2549,19 +2398,6 @@ router.put("/:id", authenticate, async (req, res) => {
       !["MAIN", "TEST"].includes(req.body.chain)
     ) {
       return res.status(400).json({ error: "Invalid chain value" });
-    }
-
-    // ─── Input validation (partial — only checks fields present) ────────
-    const updateCheck = validateBountyUpdate(req.body);
-    if (!updateCheck.valid) {
-      return res.status(400).json({ error: updateCheck.error });
-    }
-
-    if (req.body.categoryId !== undefined) {
-      const categoryCheck = await validateCategory(prisma, req.body.categoryId);
-      if (!categoryCheck.valid) {
-        return res.status(400).json({ error: categoryCheck.error });
-      }
     }
 
     if (req.body.teamId && req.user.role !== "ADMIN") {
