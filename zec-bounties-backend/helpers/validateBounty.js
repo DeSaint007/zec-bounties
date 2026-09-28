@@ -32,7 +32,12 @@ function isValidFutureDate(value) {
 
 // ─── Create validation ──────────────────────────────────────────────────────
 
-function validateBountyCreate({ title, description, bountyAmount, timeToComplete }) {
+function validateBountyCreate({
+  title,
+  description,
+  bountyAmount,
+  timeToComplete,
+}) {
   // Title
   if (!isNonEmptyString(title)) {
     return { valid: false, error: "Title is required" };
@@ -70,7 +75,11 @@ function validateBountyCreate({ title, description, bountyAmount, timeToComplete
   }
 
   // Bounty amount
-  if (bountyAmount === undefined || bountyAmount === null || bountyAmount === "") {
+  if (
+    bountyAmount === undefined ||
+    bountyAmount === null ||
+    bountyAmount === ""
+  ) {
     return { valid: false, error: "Bounty amount is required" };
   }
   if (!isFinitePositiveNumber(bountyAmount)) {

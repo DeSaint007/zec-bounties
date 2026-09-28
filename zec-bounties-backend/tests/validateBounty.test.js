@@ -89,11 +89,14 @@ describe("isValidFutureDate", () => {
 // ─── Create validation ─────────────────────────────────────────────────────
 
 describe("validateBountyCreate", () => {
-  const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const futureDate = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   const validPayload = {
     title: "Fix the login page",
-    description: "The login page crashes when the user enters an invalid email address. Fix this.",
+    description:
+      "The login page crashes when the user enters an invalid email address. Fix this.",
     bountyAmount: 0.05,
     timeToComplete: futureDate,
   };
@@ -123,14 +126,20 @@ describe("validateBountyCreate", () => {
     assert.match(result.error, new RegExp(String(TITLE_MIN)));
   });
   it("rejects title longer than maximum", () => {
-    const result = validateBountyCreate({ ...validPayload, title: "a".repeat(TITLE_MAX + 1) });
+    const result = validateBountyCreate({
+      ...validPayload,
+      title: "a".repeat(TITLE_MAX + 1),
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, new RegExp(String(TITLE_MAX)));
   });
 
   // Description
   it("rejects missing description", () => {
-    const result = validateBountyCreate({ ...validPayload, description: undefined });
+    const result = validateBountyCreate({
+      ...validPayload,
+      description: undefined,
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, /description/i);
   });
@@ -139,19 +148,28 @@ describe("validateBountyCreate", () => {
     assert.equal(result.valid, false);
   });
   it("rejects description shorter than minimum", () => {
-    const result = validateBountyCreate({ ...validPayload, description: "short" });
+    const result = validateBountyCreate({
+      ...validPayload,
+      description: "short",
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, new RegExp(String(DESC_MIN)));
   });
   it("rejects description longer than maximum", () => {
-    const result = validateBountyCreate({ ...validPayload, description: "a".repeat(DESC_MAX + 1) });
+    const result = validateBountyCreate({
+      ...validPayload,
+      description: "a".repeat(DESC_MAX + 1),
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, new RegExp(String(DESC_MAX)));
   });
 
   // Bounty amount
   it("rejects missing bountyAmount", () => {
-    const result = validateBountyCreate({ ...validPayload, bountyAmount: undefined });
+    const result = validateBountyCreate({
+      ...validPayload,
+      bountyAmount: undefined,
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, /amount/i);
   });
@@ -168,11 +186,17 @@ describe("validateBountyCreate", () => {
     assert.equal(result.valid, false);
   });
   it("rejects Infinity bountyAmount", () => {
-    const result = validateBountyCreate({ ...validPayload, bountyAmount: Infinity });
+    const result = validateBountyCreate({
+      ...validPayload,
+      bountyAmount: Infinity,
+    });
     assert.equal(result.valid, false);
   });
   it("rejects non-numeric string bountyAmount", () => {
-    const result = validateBountyCreate({ ...validPayload, bountyAmount: "abc" });
+    const result = validateBountyCreate({
+      ...validPayload,
+      bountyAmount: "abc",
+    });
     assert.equal(result.valid, false);
   });
   it("rejects empty string bountyAmount", () => {
@@ -182,16 +206,25 @@ describe("validateBountyCreate", () => {
 
   // Deadline
   it("rejects missing timeToComplete", () => {
-    const result = validateBountyCreate({ ...validPayload, timeToComplete: undefined });
+    const result = validateBountyCreate({
+      ...validPayload,
+      timeToComplete: undefined,
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, /deadline/i);
   });
   it("rejects invalid date string", () => {
-    const result = validateBountyCreate({ ...validPayload, timeToComplete: "not-a-date" });
+    const result = validateBountyCreate({
+      ...validPayload,
+      timeToComplete: "not-a-date",
+    });
     assert.equal(result.valid, false);
   });
   it("rejects past date", () => {
-    const result = validateBountyCreate({ ...validPayload, timeToComplete: "2020-01-01" });
+    const result = validateBountyCreate({
+      ...validPayload,
+      timeToComplete: "2020-01-01",
+    });
     assert.equal(result.valid, false);
     assert.match(result.error, /future/i);
   });
@@ -200,7 +233,9 @@ describe("validateBountyCreate", () => {
 // ─── Update validation ─────────────────────────────────────────────────────
 
 describe("validateBountyUpdate", () => {
-  const futureDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const futureDate = new Date(
+    Date.now() + 7 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   it("accepts empty body (no fields to validate)", () => {
     const result = validateBountyUpdate({});
