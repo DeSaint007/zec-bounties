@@ -23,6 +23,11 @@ const { notifyNewBounty } = require("../utils/discord/discordNotify");
 const { notifyAssignment } = require("../utils/discord/discordAssignWebhook");
 const { REQUIRED_TEAM_VERIFICATIONS } = require("../utils/constants");
 const {
+  validateBountyCreate,
+  validateBountyUpdate,
+  validateCategory,
+} = require("../helpers/validateBounty");
+const {
   USER_SELECT,
   USER_SELECT_PUBLIC,
   USER_SELECT_FULL,
