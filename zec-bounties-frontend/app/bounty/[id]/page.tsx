@@ -9,16 +9,16 @@ export default function BountyRedirectPage() {
   const router = useRouter();
 
   useEffect(() => {
-    let target = "/home"; // default: guests and clients both land here
+    let target = "/";
 
     try {
       const cached = localStorage.getItem("currentUser");
       if (cached) {
         const user = JSON.parse(cached);
-        if (user?.role === "ADMIN") target = "/admin/bounties";
+        if (user) target = user.role === "ADMIN" ? "/admin/bounties" : "/home";
       }
     } catch {
-      // malformed/missing cache — fall back to /home
+      // malformed/missing cache — fall back to /
     }
 
     router.replace(`${target}?bounty=${id}`);
