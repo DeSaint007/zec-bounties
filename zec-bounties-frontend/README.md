@@ -24,3 +24,7 @@ yarn dev
 ```
 http://localhost:3000
 ```
+
+## Backend
+
+In development, the frontend calls the backend at `http://localhost:9000` (see `lib/configENV.ts`). Start the backend first by following `../zec-bounties-backend/README.md`, which sets `PORT=9000` in the backend's `.env`.

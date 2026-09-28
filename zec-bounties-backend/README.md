@@ -5,7 +5,20 @@ It provides APIs for authentication, bounty creation, task submissions, and paym
 
 ---
 
+## ✅ Prerequisites
+
+- Node.js 20 or later, with npm
+- PostgreSQL (the Prisma schema uses `provider = "postgresql"`)
+- Redis (the server connects to it on startup)
+- Docker, optionally, to run PostgreSQL and Redis with the commands below
+
+Zebrad, Zaino and zingo-cli are only needed for Zcash wallet and payment features, not to run the app locally. See [Zechub Developers Resources](https://zechub.wiki/developers) to set them up.
+
+---
+
 ## 🚀 Getting Started
+
+Run these commands from the `zec-bounties-backend` directory.
 
 ### 1. Install dependencies
 
@@ -13,35 +26,35 @@ It provides APIs for authentication, bounty creation, task submissions, and paym
 npm install
 ```
 
-### Note
+### 2. Start PostgreSQL and Redis
 
-You need to have Zebrad and Zaino installed. Check [Zechub Developers Resources](https://zechub.wiki/developers) to get started.
-
-### 2. Initialize Prisma
+With Docker:
 
 ```bash
-npx prisma init
+docker run -d --name zb-postgres -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=zec_bounties -p 5432:5432 postgres:16-alpine
+docker run -d --name zb-redis -p 6379:6379 redis:7
 ```
 
-### 3. Generate Prisma Client
+If you already run PostgreSQL and Redis, update `DATABASE_URL` and `REDIS_URL` in your `.env` to point at them.
+
+### 3. Create your `.env`
 
 ```bash
-npx prisma generate
+cp .env.example .env
+npx web-push generate-vapid-keys
 ```
 
-### 4. Run the initial migration
+Paste the two generated keys into `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`, and set `JWT_SECRET` to a long random string (for example, the output of `openssl rand -hex 32`). The server won't start without the VAPID keys.
 
-```bash
-npx prisma migrate dev --name init
-```
-
-### 5. Push database schema
+### 4. Create the database tables
 
 ```bash
 npx prisma db push
 ```
 
-### 6. Start the development server
+This creates the tables from `prisma/schema.prisma` and generates the Prisma Client.
+
+### 5. Start the development server
 
 ```bash
 npm run dev
@@ -50,28 +63,21 @@ npm run dev
 ## The app will start on:
 
 ```
-http://localhost:5000
+http://localhost:9000
 ```
+
+The port comes from `PORT` in `.env`, and `.env.example` sets it to 9000 to match the frontend's development backend URL (`zec-bounties-frontend/lib/configENV.ts`). If `PORT` isn't set, `server.js` falls back to 9001 and the frontend won't reach the backend.
+
+To check that it's running:
+
+```bash
+curl http://localhost:9000/api/bounties
+```
+
+On a fresh database, this returns `{"data":[],"total":0,"page":1,"limit":10}`.
 
 ## ⚙️ Environment Variables
 
-Create a .env file in the project root (it’s automatically created when you run npx prisma init).
-Example:
+`.env.example` lists every variable the backend reads, each with a placeholder and a one-line description, marked `[required]` or `[optional]`.
 
-```bash
-USER="USER_NAME"
-
-DATABASE_URL="file:./dev.db"
-JWT_SECRET="JWT_SECRET"
-ZCASH_RPC_USER=rpcuser
-ZCASH_RPC_PASS=rpcpassword
-ZCASH_RPC_URL=http://localhost:8232
-
-# Github
-GITHUB_CLIENT_ID=GITHUB_CLIENT_ID
-GITHUB_CLIENT_SECRET=GITHUB_CLIENT_SECRET
-FRONTEND_URL=http://localhost:3000
-BACKEND_URL=http://localhost:5000
-```
-
-Adjust according to your environment and database provider.
+For local development you only need `DATABASE_URL`, `JWT_SECRET`, `PORT`, and the three `VAPID_*` values. Everything else (GitHub and Discord login, email, Pinata uploads, and Zcash wallets and payments) can keep its example value or stay blank until you work on that feature.
