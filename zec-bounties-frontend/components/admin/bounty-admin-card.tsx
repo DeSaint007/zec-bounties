@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ProfileLink } from "@/components/profile-link";
 import type { Bounty, BountyStatus, WorkSubmission } from "@/lib/types";
 import { useBounty } from "@/lib/bounty-context";
 import {
@@ -265,9 +266,11 @@ export function BountyAdminCard({
             fallbackChar={bounty.createdByUser?.name?.charAt(0) || "?"}
           />
           <div>
-            <p className="text-xs text-muted-foreground font-medium">
-              {bounty.createdByUser?.name}
-            </p>
+            <ProfileLink user={bounty.createdByUser}>
+              <p className="text-xs text-muted-foreground font-medium">
+                {bounty.createdByUser?.name}
+              </p>
+            </ProfileLink>
             <h3 className="font-semibold line-clamp-1 leading-tight group-hover:text-primary transition-colors">
               {bounty.title}
             </h3>
@@ -409,9 +412,11 @@ export function BountyAdminCard({
             fallbackChar={bounty.createdByUser?.name?.charAt(0) || "?"}
           />
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground font-medium">
-              {bounty.createdByUser?.name}
-            </p>
+            <ProfileLink user={bounty.createdByUser}>
+              <p className="text-xs text-muted-foreground font-medium">
+                {bounty.createdByUser?.name}
+              </p>
+            </ProfileLink>
             <h3 className="font-semibold line-clamp-1 leading-tight group-hover:text-primary transition-colors">
               {bounty.title}
             </h3>
@@ -1091,9 +1096,11 @@ export function BountyAdminCard({
                     fallbackChar={bounty.createdByUser?.name?.charAt(0) || "?"}
                   />
                   <div>
-                    <p className="text-sm font-semibold">
-                      {bounty.createdByUser?.name || "Unknown"}
-                    </p>
+                    <ProfileLink user={bounty.createdByUser}>
+                      <p className="text-sm font-semibold">
+                        {bounty.createdByUser?.name || "Unknown"}
+                      </p>
+                    </ProfileLink>
                   </div>
                 </div>
               </div>
@@ -1111,9 +1118,11 @@ export function BountyAdminCard({
                       fallbackChar={bounty.assigneeUser?.name?.charAt(0) || "?"}
                     />
                     <div>
-                      <p className="text-sm font-bold text-primary">
-                        {bounty.assigneeUser?.name || "Unknown"}
-                      </p>
+                      <ProfileLink user={bounty.assigneeUser}>
+                        <p className="text-sm font-bold text-primary">
+                          {bounty.assigneeUser?.name || "Unknown"}
+                        </p>
+                      </ProfileLink>
                     </div>
                   </div>
                 </div>

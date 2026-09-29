@@ -28,6 +28,7 @@ const {
   validateBountyUpdate,
   validateCategory,
 } = require("../helpers/validateBounty");
+const { userIdentityWhere, bountyInvolvesUserWhere } = require("../utils/userIdentity");
 const {
   USER_SELECT,
   USER_SELECT_PUBLIC,
@@ -468,9 +469,21 @@ router.get("/", optionalAuthenticate, async (req, res) => {
           ],
         };
 
+    const userTerm = String(req.query.user || "").trim();
+    let userFilter = {};
+    if (userTerm) {
+      if (!isAdmin) {
+        return res.status(403).json({ error: "user filter is admin-only" });
+      }
+      const identity = userIdentityWhere(userTerm);
+      const involves = bountyInvolvesUserWhere(identity);
+      if (involves) userFilter = involves;
+    }
+
     const where = {
       ...chainFilter,
       ...visibilityFilter,
+      ...userFilter,
     };
 
     // ------------------------------------------------------------
@@ -485,6 +498,7 @@ router.get("/", optionalAuthenticate, async (req, res) => {
       limit,
       chain: chainParam,
       viewer: isAdmin ? "admin" : (userId ?? "anon"),
+      user: userTerm || "",
     })}`;
 
     const cached = await getCache(cacheKey);
