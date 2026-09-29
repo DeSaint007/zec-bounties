@@ -38,6 +38,7 @@ import {
   bountyCreatorInitial,
   bountyCreatorAvatarSrc,
 } from "@/lib/displayName";
+import { ProfileLink } from "@/components/profile-link";
 import { ZecToUsd } from "./ZecToUsd";
 
 interface BountyDetailModalProps {
@@ -980,9 +981,11 @@ export function BountyDetailModal({
                     {bountyCreatorInitial(bounty)}
                   </AvatarFallback>
                 </Avatar>
-                <p className="text-sm font-medium">
-                  {bountyCreatorName(bounty)}
-                </p>
+                <ProfileLink user={bounty.team ? null : bounty.createdByUser}>
+                  <p className="text-sm font-medium">
+                    {bountyCreatorName(bounty)}
+                  </p>
+                </ProfileLink>
               </div>
             </div>
 
@@ -1011,9 +1014,11 @@ export function BountyDetailModal({
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-semibold text-primary truncate">
-                            {a.user?.nickname || a.user?.name || "Unknown"}
-                          </p>
+                          <ProfileLink user={a.user}>
+                            <p className="text-xs font-semibold text-primary truncate">
+                              {a.user?.nickname || a.user?.name || "Unknown"}
+                            </p>
+                          </ProfileLink>
                           <div className="flex items-center gap-1.5">
                             {a.userId === currentUser?.id && (
                               <span className="text-[10px] text-muted-foreground">

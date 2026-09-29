@@ -162,7 +162,10 @@ interface BountyContextType {
   uaAddressUpdate: (UA_address: string) => Promise<boolean | undefined>;
   verifyZaddress: (z_address: string) => Promise<boolean | undefined>;
   verifyUaddress: (z_address: string) => Promise<boolean | undefined>;
-  fetchBounties: (reset?: boolean) => Promise<void>;
+  fetchBounties: (
+    reset?: boolean,
+    opts?: { chain?: "MAIN" | "TEST" | "ALL"; teamId?: string; user?: string },
+  ) => Promise<void>;
   loadMoreBounties: () => Promise<void>;
   loadAllBounties: () => Promise<void>;
   hasMoreBounties: boolean;
@@ -2768,10 +2771,15 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
   // token (when present) is required so logged-in users get their team's
   // private bounties back via the visibility filter. Never use
   // getPublicHeaders() here.
+  const listUserRef = useRef("");
+
   const fetchBounties = async (
     reset = true,
-    opts?: { chain?: "MAIN" | "TEST" | "ALL"; teamId?: string },
+    opts?: { chain?: "MAIN" | "TEST" | "ALL"; teamId?: string; user?: string },
   ) => {
+    if (opts && "user" in opts) {
+      listUserRef.current = String(opts.user || "").trim();
+    }
     setBountiesLoading(true);
     try {
       const page = reset ? 1 : bountiesPage;
@@ -2787,6 +2795,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         chain: resolvedChain,
       });
       if (opts?.teamId) params.set("teamId", opts.teamId);
+      if (listUserRef.current) params.set("user", listUserRef.current);
 
       const res = await fetch(`${backendUrl}/api/bounties?${params}`, {
         headers: getAuthHeaders(),
@@ -2843,6 +2852,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
           limit: String(limit),
           chain: resolvedChain,
         });
+        if (listUserRef.current) params.set("user", listUserRef.current);
         const res = await fetch(`${backendUrl}/api/bounties?${params}`, {
           headers: getAuthHeaders(),
         });
