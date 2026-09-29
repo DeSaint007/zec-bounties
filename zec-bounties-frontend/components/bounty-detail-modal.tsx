@@ -25,6 +25,8 @@ import {
   Share2,
   Check,
   Copy,
+  Pencil,
+  X,
 } from "lucide-react";
 import { RxDiscordLogo } from "react-icons/rx";
 import { useState, useEffect } from "react";
@@ -47,12 +49,13 @@ interface BountyDetailModalProps {
 }
 
 export function BountyDetailModal({
-  bounty,
+  bounty: bountyProp,
   open,
   onOpenChange,
 }: BountyDetailModalProps) {
   const {
     currentUser,
+    updateBounty,
     applyToBounty,
     getUserApplicationForBounty,
     fetchWorkSubmissions,
@@ -83,6 +86,22 @@ export function BountyDetailModal({
   const [now, setNow] = useState(Date.now());
   const [linkCopied, setLinkCopied] = useState(false);
   const [copyOnlyState, setCopyOnlyState] = useState(false);
+
+  const [isEditingBounty, setIsEditingBounty] = useState(false);
+  const [isSavingBounty, setIsSavingBounty] = useState(false);
+  const [bountyOverrides, setBountyOverrides] = useState<Partial<Bounty>>({});
+  const [bEditTitle, setBEditTitle] = useState("");
+  const [bEditDescription, setBEditDescription] = useState("");
+  const [bEditAmount, setBEditAmount] = useState("");
+  const [bEditDate, setBEditDate] = useState("");
+
+  const bounty = bountyProp ? { ...bountyProp, ...bountyOverrides } : null;
+
+  // Drop local overrides when a different bounty is opened
+  useEffect(() => {
+    setBountyOverrides({});
+    setIsEditingBounty(false);
+  }, [bountyProp?.id]);
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
@@ -172,6 +191,67 @@ export function BountyDetailModal({
     hasCurrentUserSubmitted &&
     (isNeedsRevision ||
       (userWorkSubmission?.status === "pending" && editMsRemaining > 0));
+
+  const bountyEditMsRemaining =
+    EDIT_WINDOW_MS - (now - new Date(bounty.dateCreated).getTime());
+  const canEditBounty =
+    currentUser?.role === "HUNTER" &&
+    bounty.createdBy === currentUser.id &&
+    bountyEditMsRemaining > 0;
+
+  const startBountyEdit = () => {
+    setBEditTitle(bounty.title);
+    setBEditDescription(bounty.description);
+    setBEditAmount(String(bounty.bountyAmount));
+    setBEditDate(format(new Date(bounty.timeToComplete), "yyyy-MM-dd"));
+    setIsEditingBounty(true);
+  };
+
+  const cancelBountyEdit = () => setIsEditingBounty(false);
+
+  // Optimistic: apply immediately, roll back if the request fails.
+  const handleSaveBountyEdit = async () => {
+    const amount = parseFloat(bEditAmount);
+    if (
+      !bEditTitle.trim() ||
+      !bEditDescription.trim() ||
+      !bEditDate ||
+      !(amount > 0)
+    ) {
+      toast.error("Title, description, date and a valid reward are required");
+      return;
+    }
+    const previous: Partial<Bounty> = {
+      title: bounty.title,
+      description: bounty.description,
+      bountyAmount: bounty.bountyAmount,
+      timeToComplete: bounty.timeToComplete,
+    };
+    const next: Partial<Bounty> = {
+      title: bEditTitle.trim(),
+      description: bEditDescription.trim(),
+      bountyAmount: amount,
+      timeToComplete: new Date(bEditDate),
+    };
+    setBountyOverrides((prev) => ({ ...prev, ...next }));
+    setIsEditingBounty(false);
+    setIsSavingBounty(true);
+    try {
+      await updateBounty(bounty.id, {
+        title: next.title,
+        description: next.description,
+        bountyAmount: next.bountyAmount,
+        timeToComplete: new Date(bEditDate),
+      });
+      toast.success("Bounty updated!");
+    } catch (error) {
+      console.error("Failed to update bounty:", error);
+      setBountyOverrides((prev) => ({ ...prev, ...previous }));
+      toast.error("Failed to update bounty");
+    } finally {
+      setIsSavingBounty(false);
+    }
+  };
 
   const startEdit = () => {
     setEditDescription(userWorkSubmission?.description ?? "");
@@ -411,6 +491,8 @@ export function BountyDetailModal({
     setSubmissionDescription("");
     setDeliverableUrl("");
     setWorkSubmissions([]);
+    setBountyOverrides({});
+    setIsEditingBounty(false);
   };
 
   const statusBadgeClass = (status?: string) => {
@@ -464,9 +546,54 @@ export function BountyDetailModal({
           </div>
           <div className="flex items-start justify-between gap-2">
             <DialogTitle className="text-lg font-semibold leading-snug flex-1">
-              {bounty.title}
+              {isEditingBounty ? (
+                <input
+                  value={bEditTitle}
+                  onChange={(e) => setBEditTitle(e.target.value)}
+                  placeholder="Title"
+                  autoFocus
+                  className="w-full bg-transparent border-b border-dashed border-primary/50 focus:border-primary focus:outline-none pb-0.5"
+                />
+              ) : (
+                bounty.title
+              )}
             </DialogTitle>
             <div className="flex items-center gap-1 shrink-0">
+              {isEditingBounty ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={cancelBountyEdit}
+                    title="Cancel"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-emerald-500 hover:text-emerald-600"
+                    onClick={handleSaveBountyEdit}
+                    title="Save changes"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                  </Button>
+                </>
+              ) : (
+                canEditBounty && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={startBountyEdit}
+                    disabled={isSavingBounty}
+                    title={`Edit (${Math.ceil(bountyEditMsRemaining / 60000)} min left)`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                )
+              )}
               <Button
                 variant="ghost"
                 size="icon"
@@ -496,10 +623,22 @@ export function BountyDetailModal({
             </div>
           </div>
           <DialogDescription className="flex items-center gap-3 mt-1">
-            <span className="flex items-center gap-1 text-xs">
-              <Clock className="h-3 w-3" />
-              {format(bounty.dateCreated, "MMM dd, yyyy")}
-            </span>
+            {isEditingBounty ? (
+              <label className="flex items-center gap-1 text-xs">
+                <Clock className="h-3 w-3" />
+                <input
+                  type="date"
+                  value={bEditDate}
+                  onChange={(e) => setBEditDate(e.target.value)}
+                  className="bg-transparent border-b border-dashed border-primary/50 focus:border-primary focus:outline-none"
+                />
+              </label>
+            ) : (
+              <span className="flex items-center gap-1 text-xs">
+                <Clock className="h-3 w-3" />
+                {format(bounty.dateCreated, "MMM dd, yyyy")}
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -510,10 +649,30 @@ export function BountyDetailModal({
             <div>
               <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1.5">
                 <Shield className="h-3.5 w-3.5" /> Description
+                {canEditBounty && !isEditingBounty && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-6 px-2 text-[11px] normal-case tracking-normal"
+                    onClick={startBountyEdit}
+                  >
+                    <Pencil className="h-3 w-3 mr-1" />
+                    Edit ({Math.ceil(bountyEditMsRemaining / 60000)}m left)
+                  </Button>
+                )}
               </h4>
-              <p className="text-sm text-muted-foreground leading-relaxed break-words overflow-wrap-anywhere whitespace-pre-wrap">
-                {renderDescriptionWithLinks(bounty.description)}
-              </p>
+
+              {isEditingBounty ? (
+                <Textarea
+                  value={bEditDescription}
+                  onChange={(e) => setBEditDescription(e.target.value)}
+                  className="min-h-[120px] text-sm border-dashed border-primary/50 focus-visible:border-primary"
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground leading-relaxed break-words overflow-wrap-anywhere whitespace-pre-wrap">
+                  {renderDescriptionWithLinks(bounty.description)}
+                </p>
+              )}
             </div>
 
             {/* Submit Work */}
@@ -769,7 +928,9 @@ export function BountyDetailModal({
                       className="min-h-[90px] text-sm"
                       aria-invalid={Boolean(applicationError)}
                       aria-describedby={
-                        applicationError ? "application-message-error" : undefined
+                        applicationError
+                          ? "application-message-error"
+                          : undefined
                       }
                     />
                     {applicationError && (
@@ -952,12 +1113,33 @@ export function BountyDetailModal({
                 Reward
               </p>
               <div className="flex items-baseline gap-1.5">
-                <span className="text-2xl font-bold">
-                  {bounty.bountyAmount} ZEC
-                </span>
+                {isEditingBounty ? (
+                  <>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={bEditAmount}
+                      onChange={(e) => setBEditAmount(e.target.value)}
+                      className="w-24 bg-transparent text-2xl font-bold border-b border-dashed border-primary/50 focus:border-primary focus:outline-none"
+                    />
+                    <span className="text-2xl font-bold">ZEC</span>
+                  </>
+                ) : (
+                  <span className="text-2xl font-bold">
+                    {bounty.bountyAmount} ZEC
+                  </span>
+                )}
               </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">
-                <ZecToUsd zecAmount={bounty.bountyAmount} showZec={false} />
+                <ZecToUsd
+                  zecAmount={
+                    isEditingBounty
+                      ? parseFloat(bEditAmount) || 0
+                      : bounty.bountyAmount
+                  }
+                  showZec={false}
+                />
               </p>
               <p className="text-[10px] text-muted-foreground mt-0.5">
                 Paid upon successful review
