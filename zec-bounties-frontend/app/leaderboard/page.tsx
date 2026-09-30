@@ -114,31 +114,6 @@ export default function LeaderboardPage() {
                         : ""
                     } ${mine ? "ring-2 ring-primary" : ""}`}
                   >
-                    <AvatarImage
-  src={hunter.avatar || "/placeholder.svg"}
-  alt={`${hunter.name} avatar`}
-/>
-                    <AvatarFallback>{"None"}</AvatarFallback>
-                  </Avatar>
-                  <div
-                    className={`absolute -bottom-2 -right-2 h-8 w-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                      hunter.rank === 1
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
-                    }`}
-                  >
-                    #{hunter.rank}
-                  </div>
-                </div>
-                <h3 className="text-lg font-bold mb-1">{hunter.name}</h3>
-                <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground mb-4">
-                  <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
-                  <span>{hunter.rating}</span>
-                  <span className="mx-1">•</span>
-                  <span>{hunter.completed} Bounties</span>
-                </div>
-                <div className="text-2xl font-black text-primary">
-                  {hunter.earned}
                     {entry.rank === 1 && (
                       <div className="absolute top-0 right-0 bg-primary text-primary-foreground px-3 py-1 text-[10px] font-bold uppercase tracking-widest rounded-bl-lg">
                         Top Hunter
@@ -267,59 +242,6 @@ export default function LeaderboardPage() {
                 </div>
               </CardContent>
             </Card>
-          ))}
-        </div>
-
-        <Card className="bg-card/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="h-5 w-5 text-primary" /> Active Standings
-            </CardTitle>
-            <CardDescription>
-              Rankings based on total points and reputation
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
-            <div className="divide-y">
-              {hunters.map((hunter) => (
-                <div
-                  key={hunter.id}
-                  className="flex items-center p-4 hover:bg-muted/30 transition-colors gap-4"
-                >
-                  <div className="w-8 text-center font-mono font-bold text-muted-foreground">
-                    #{hunter.rank}
-                  </div>
-                  <Avatar className="h-10 w-10 border">
-                    <AvatarImage
-  src={hunter.avatar || "/placeholder.svg"}
-  alt={`${hunter.name} avatar`}
-/>
-                    <AvatarFallback>{"None"}</AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <p className="font-bold leading-none">{hunter.name}</p>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Zap className="h-3 w-3 text-primary" /> {hunter.points}{" "}
-                        pts
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Target className="h-3 w-3" /> {hunter.completed} Solved
-                      </span>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="font-bold">{hunter.earned}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">
-                      USD EQUIVALENT
-                    </p>
-                  </div>
-                  <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
           </>
         )}
       </div>

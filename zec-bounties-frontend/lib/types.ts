@@ -453,6 +453,8 @@ export interface SyncStatus {
   total_blocks_scanned: number;
   total_orchard_outputs_scanned: number;
   total_sapling_outputs_scanned: number;
+}
+
 export interface LeaderboardEntry {
   id: string;
   name: string;
