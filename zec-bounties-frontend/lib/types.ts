@@ -454,3 +454,14 @@ export interface SyncStatus {
   total_orchard_outputs_scanned: number;
   total_sapling_outputs_scanned: number;
 }
+
+export interface LeaderboardEntry {
+  id: string;
+  name: string;
+  nickname: string | null;
+  avatar: string | null;
+  earned: number;
+  completed: number;
+  points: number;
+  rank: number;
+}
