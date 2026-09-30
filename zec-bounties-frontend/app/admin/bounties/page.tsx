@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams, usePathname, useRouter } from "next/navigation";
 import { AdminNavbar } from "@/components/layout/admin/navbar";
 import { DUMMY_BOUNTIES } from "@/lib/data";
 import { BountyCard } from "@/components/bounty-card";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import {
   LayoutGrid,
   List,
+  Grid3X3,
   Plus,
   Filter,
   ArrowRight,
@@ -16,15 +18,72 @@ import {
   X,
   Loader2,
 } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { AdminBountyModal } from "@/components/admin-bounty-modal";
 import { BountyDetailModal } from "@/components/bounty-detail-modal";
 import { Bounty } from "@/lib/types";
 import { useBounty } from "@/lib/bounty-context";
+import { bountyMatchesQuery, parseUserSearchQuery } from "@/lib/userIdentity";
 import type { BountyStatus } from "@/lib/types";
+import { formatStatus } from "@/lib/utils";
 import { ProtectedRoute } from "@/components/auth/protected-route";
 import { Input } from "@/components/ui/input";
 import { WalletGuard } from "@/components/settings/wallet-guard";
+import { backendUrl } from "@/lib/configENV";
+import { profileHref } from "@/lib/profileHref";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+
+const STATUS_DOT: Record<BountyStatus, string> = {
+  TO_DO: "bg-slate-400",
+  IN_PROGRESS: "bg-blue-500",
+  IN_REVIEW: "bg-yellow-500",
+  DONE: "bg-green-500",
+  CANCELLED: "bg-red-500",
+};
+
+const MARKETPLACE_STATUS_FILTERS: {
+  status: BountyStatus | "all";
+  label: string;
+}[] = [
+  { status: "all", label: "All" },
+  { status: "TO_DO", label: "Todo" },
+  { status: "IN_PROGRESS", label: "In Progress" },
+  { status: "IN_REVIEW", label: "In Review" },
+  { status: "DONE", label: "Done" },
+  { status: "CANCELLED", label: "Cancelled" },
+];
+
+const DEFRAG_STATUS_COLORS: Record<BountyStatus, string> = {
+  TO_DO: "bg-cyan-400",
+  IN_PROGRESS: "bg-blue-800",
+  IN_REVIEW: "bg-red-500",
+  DONE: "bg-blue-500",
+  CANCELLED: "bg-zinc-700",
+};
+
+const DEFRAG_LEGEND: { status: BountyStatus; label: string; color: string }[] =
+  [
+    { status: "TO_DO", label: "Todo", color: "bg-cyan-400" },
+    { status: "IN_PROGRESS", label: "In Progress", color: "bg-blue-800" },
+    { status: "IN_REVIEW", label: "In Review", color: "bg-red-500" },
+    { status: "DONE", label: "Done", color: "bg-blue-500" },
+    { status: "CANCELLED", label: "Cancelled", color: "bg-zinc-700" },
+  ];
+
+const STATUS_ORDER: BountyStatus[] = [
+  "TO_DO",
+  "IN_PROGRESS",
+  "IN_REVIEW",
+  "DONE",
+  "CANCELLED",
+];
 
 export default function MarketplacePage() {
   const {
@@ -32,27 +91,122 @@ export default function MarketplacePage() {
     bountiesLoading,
     hasMoreBounties,
     loadMoreBounties,
+    loadAllBounties,
     currentUser,
     categories,
     createCategory,
+    fetchBountyById,
+    fetchBounties,
   } = useBounty();
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
   const [activeCategory, setActiveCategory] = useState("All");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [viewMode, setViewMode] = useState<"grid" | "list" | "defrag">("grid");
   const [searchQuery, setSearchQuery] = useState("");
+  const serverUser = parseUserSearchQuery(searchQuery).user;
+  const [people, setPeople] = useState<
+    Array<{
+      id: string;
+      name?: string | null;
+      nickname?: string | null;
+      avatar?: string | null;
+      role?: string | null;
+      discordUsername?: string | null;
+    }>
+  >([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+
+  useEffect(() => {
+    if (!fetchBounties) return;
+    const t = setTimeout(() => {
+      fetchBounties(true, serverUser ? { user: serverUser } : { user: "" });
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverUser]);
+
+  useEffect(() => {
+    const q = searchQuery.trim();
+    if (q.length < 2) {
+      setPeople([]);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setPeopleLoading(true);
+      try {
+        const token =
+          typeof window !== "undefined"
+            ? localStorage.getItem("authToken")
+            : null;
+        const res = await fetch(
+          `${backendUrl}/api/users/search?q=${encodeURIComponent(q.replace(/^@/, "").replace(/^user:/i, ""))}`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          },
+        );
+        if (!res.ok) {
+          setPeople([]);
+          return;
+        }
+        const json = await res.json();
+        setPeople(Array.isArray(json.data) ? json.data : []);
+      } catch {
+        setPeople([]);
+      } finally {
+        setPeopleLoading(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
   const [statusFilter, setStatusFilter] = useState<BountyStatus | "all">("all");
   const [isAdminBountyModalOpen, setIsAdminBountyModalOpen] = useState(false);
   const [selectedBounty, setSelectedBounty] = useState<Bounty | null>(null);
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [defragListOpen, setDefragListOpen] = useState(false);
 
-  // New states for category creation
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [categoryError, setCategoryError] = useState("");
 
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!hasMoreBounties || viewMode === "defrag") return;
+
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && !bountiesLoading) {
+          loadMoreBounties();
+        }
+      },
+      { rootMargin: "400px" },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreBounties, bountiesLoading, loadMoreBounties, viewMode]);
+
+  const openBounty = (bounty: Bounty) => {
+    setSelectedBounty(bounty);
+    setIsDetailModalOpen(true);
+    router.push(`${pathname}?bounty=${bounty.id}`, { scroll: false });
+  };
+
+  const closeBounty = () => {
+    setIsDetailModalOpen(false);
+    router.push(pathname, { scroll: false });
+  };
+
   const handleAddCategory = async () => {
     if (newCategoryName.trim() === "") return;
 
-    // Check if category already exists
     if (categories.some((cat) => cat.name === newCategoryName.trim())) {
       setCategoryError("Category already exists!");
       return;
@@ -77,31 +231,47 @@ export default function MarketplacePage() {
     setCategoryError("");
   };
 
-  // Convert categories to display format (add "All" option)
   const displayCategories = ["All", ...categories.map((cat) => cat.name)];
 
-  const filteredBounties = useMemo(() => {
+  const categorySearchFilteredBounties = useMemo(() => {
     let filtered = bounties;
 
-    // Category filter
     if (activeCategory !== "All") {
       filtered = filtered.filter(
         (bounty) => bounty.categoryId === activeCategory,
       );
     }
 
-    // Search filter
     if (searchQuery.trim()) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (bounty) =>
-          bounty.title.toLowerCase().includes(searchLower) ||
-          bounty.description.toLowerCase().includes(searchLower) ||
-          bounty.createdByUser?.name?.toLowerCase().includes(searchLower),
+      filtered = filtered.filter((bounty) =>
+        bountyMatchesQuery(bounty, searchQuery),
       );
     }
 
-    // Status filter
+    return filtered;
+  }, [bounties, activeCategory, searchQuery]);
+
+  const statusCountFor = (status: BountyStatus | "all") =>
+    status === "all"
+      ? categorySearchFilteredBounties.length
+      : categorySearchFilteredBounties.filter((b) => b.status === status)
+          .length;
+
+  const filteredBounties = useMemo(() => {
+    let filtered = bounties;
+
+    if (activeCategory !== "All") {
+      filtered = filtered.filter(
+        (bounty) => bounty.categoryId === activeCategory,
+      );
+    }
+
+    if (searchQuery.trim()) {
+      filtered = filtered.filter((bounty) =>
+        bountyMatchesQuery(bounty, searchQuery),
+      );
+    }
+
     if (statusFilter !== "all") {
       filtered = filtered.filter((bounty) => bounty.status === statusFilter);
     }
@@ -112,7 +282,17 @@ export default function MarketplacePage() {
     );
   }, [bounties, searchQuery, activeCategory, statusFilter]);
 
-  // Get count for each category
+  const defragBounties = useMemo(() => {
+    return [...filteredBounties].sort((a, b) => {
+      const ai = STATUS_ORDER.indexOf(a.status);
+      const bi = STATUS_ORDER.indexOf(b.status);
+      if (ai !== bi) return ai - bi;
+      return (
+        new Date(b.dateCreated).getTime() - new Date(a.dateCreated).getTime()
+      );
+    });
+  }, [filteredBounties]);
+
   const getCategoryCount = (categoryName: string) => {
     if (categoryName === "All") {
       return bounties.length;
@@ -120,6 +300,25 @@ export default function MarketplacePage() {
     return bounties.filter((bounty) => bounty.categoryId === categoryName)
       .length;
   };
+
+  useEffect(() => {
+    const bountyId = searchParams.get("bounty");
+    if (!bountyId) return;
+
+    const inMemory = bounties.find((b) => b.id === bountyId);
+    if (inMemory) {
+      setSelectedBounty(inMemory);
+      setIsDetailModalOpen(true);
+      return;
+    }
+
+    fetchBountyById(bountyId).then((bounty) => {
+      if (bounty) {
+        setSelectedBounty(bounty);
+        setIsDetailModalOpen(true);
+      }
+    });
+  }, [searchParams, bounties, fetchBountyById]);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
@@ -151,11 +350,12 @@ export default function MarketplacePage() {
         <BountyDetailModal
           bounty={selectedBounty}
           open={isDetailModalOpen}
-          onOpenChange={setIsDetailModalOpen}
+          onOpenChange={(open) =>
+            open ? setIsDetailModalOpen(true) : closeBounty()
+          }
         />
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Sidebar filters */}
           <aside className="space-y-8">
             <div>
               <h3 className="text-sm font-semibold mb-4 flex items-center justify-between">
@@ -172,7 +372,6 @@ export default function MarketplacePage() {
                 </Button>
               </h3>
 
-              {/* Category input form */}
               {isAddingCategory && (
                 <div className="mb-3 p-2 border rounded-lg bg-card/50">
                   <div className="flex items-center gap-2 mb-2">
@@ -237,23 +436,8 @@ export default function MarketplacePage() {
                 ))}
               </div>
             </div>
-
-            <div className="rounded-xl border bg-card/30 p-4 border-dashed hidden">
-              <h4 className="font-semibold text-sm mb-2">Become a Partner</h4>
-              <p className="text-xs text-muted-foreground mb-4">
-                List your technical challenges and find top-tier developers.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full text-xs bg-transparent"
-              >
-                Integrations Console
-              </Button>
-            </div>
           </aside>
 
-          {/* Main content */}
           <div className="lg:col-span-3 space-y-6">
             <div className="flex items-center justify-between pb-4 border-b">
               <h2 className="text-xl font-bold">
@@ -278,10 +462,247 @@ export default function MarketplacePage() {
                 >
                   <List className="h-4 w-4" />
                 </Button>
+                <Button
+                  variant={viewMode === "defrag" ? "secondary" : "ghost"}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setViewMode("defrag")}
+                  title="Defrag map view"
+                >
+                  <Grid3X3 className="h-4 w-4" />
+                </Button>
               </div>
             </div>
 
-            {filteredBounties.length > 0 ? (
+            {searchQuery.trim().length >= 2 && (
+              <div className="rounded-xl border bg-card/40 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    People
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    {peopleLoading
+                      ? "searching…"
+                      : `${people.length} match${people.length === 1 ? "" : "es"}`}
+                  </span>
+                </div>
+                {people.length === 0 && !peopleLoading ? (
+                  <p className="text-sm text-muted-foreground">
+                    No profiles for “{searchQuery.trim()}”. Bounty matches are
+                    below.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {people.map((user) => (
+                      <Link
+                        key={user.id}
+                        href={profileHref(user)}
+                        className="inline-flex items-center gap-2 rounded-full border bg-background px-2.5 py-1 text-sm hover:border-primary/50 hover:bg-muted/60"
+                        title="Open profile"
+                      >
+                        <Avatar className="h-6 w-6 border">
+                          <AvatarImage src={user.avatar || undefined} />
+                          <AvatarFallback className="text-[10px]">
+                            {(user.nickname || user.name || "?").charAt(0)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">
+                          {user.nickname || user.name || "User"}
+                        </span>
+                        {user.nickname && user.name && user.name !== user.nickname && (
+                          <span className="text-xs text-muted-foreground">
+                            {user.name}
+                          </span>
+                        )}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div
+              style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+            >
+              {MARKETPLACE_STATUS_FILTERS.map((f) => {
+                const active = statusFilter === f.status;
+                return (
+                  <button
+                    key={f.status}
+                    onClick={() => setStatusFilter(f.status)}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                      active
+                        ? "border-primary/40 bg-primary/10 font-medium text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    {f.status !== "all" && (
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT[f.status]}`}
+                      />
+                    )}
+                    {f.label}
+                    <span className="tabular-nums opacity-60">
+                      {statusCountFor(f.status)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {viewMode === "defrag" ? (
+              filteredBounties.length === 0 ? (
+                <div className="text-center py-20 border rounded-xl bg-muted/20">
+                  <p className="text-muted-foreground">
+                    No bounties found
+                    {activeCategory !== "All" ? ` in ${activeCategory}` : ""}
+                    {searchQuery ? " matching your search" : ""}.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                    {DEFRAG_LEGEND.map((item) => (
+                      <div
+                        key={item.status}
+                        className="flex items-center gap-1.5"
+                      >
+                        <span
+                          className={`inline-block h-3 w-3 border border-black/80 ${item.color}`}
+                        />
+                        <span>{item.label}</span>
+                      </div>
+                    ))}
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-[11px] opacity-70">
+                        {filteredBounties.length} bounties · click a block to
+                        open
+                      </span>
+                      <Sheet
+                        open={defragListOpen}
+                        onOpenChange={setDefragListOpen}
+                      >
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 gap-1.5 px-2.5 text-xs"
+                          disabled={bountiesLoading}
+                          onClick={async () => {
+                            setDefragListOpen(true);
+                            await loadAllBounties();
+                          }}
+                        >
+                          {bountiesLoading ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <List className="h-3.5 w-3.5" />
+                          )}
+                          List all
+                        </Button>
+                        <SheetContent
+                          side="right"
+                          className="flex w-full flex-col sm:max-w-md"
+                        >
+                          <SheetHeader>
+                            <SheetTitle>
+                              {activeCategory === "All"
+                                ? "All bounties"
+                                : `${activeCategory} bounties`}
+                            </SheetTitle>
+                            <SheetDescription>
+                              {defragBounties.length} on the defrag map
+                              {hasMoreBounties ? " · loading the rest…" : ""}
+                            </SheetDescription>
+                          </SheetHeader>
+                          <div className="mt-4 flex-1 overflow-y-auto pr-1">
+                            <ul className="space-y-1">
+                              {defragBounties.map((bounty) => {
+                                const color =
+                                  DEFRAG_STATUS_COLORS[bounty.status] ??
+                                  "bg-zinc-600";
+                                return (
+                                  <li key={bounty.id}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setDefragListOpen(false);
+                                        openBounty(bounty);
+                                      }}
+                                      className="flex w-full items-start gap-2.5 rounded-md px-2 py-2 text-left hover:bg-accent"
+                                    >
+                                      <span
+                                        className={`mt-1 inline-block h-3 w-3 shrink-0 border border-black/80 ${color}`}
+                                      />
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate text-sm font-medium">
+                                          {bounty.title}
+                                        </span>
+                                        <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                          {formatStatus(bounty.status)}
+                                          {typeof bounty.bountyAmount ===
+                                          "number"
+                                            ? ` · ${bounty.bountyAmount} ZEC`
+                                            : ""}
+                                        </span>
+                                      </span>
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          </div>
+                        </SheetContent>
+                      </Sheet>
+                    </div>
+                  </div>
+                  <div
+                    className="rounded border border-border bg-black p-1.5 overflow-hidden"
+                    style={{ imageRendering: "pixelated" }}
+                  >
+                    <div
+                      className="grid gap-px"
+                      style={{
+                        gridTemplateColumns: "repeat(auto-fill, 14px)",
+                        justifyContent: "start",
+                      }}
+                    >
+                      {defragBounties.map((bounty) => {
+                        const color =
+                          DEFRAG_STATUS_COLORS[bounty.status] ?? "bg-zinc-600";
+                        return (
+                          <button
+                            key={bounty.id}
+                            type="button"
+                            title={`${bounty.title} — ${formatStatus(bounty.status)}`}
+                            onClick={() => openBounty(bounty)}
+                            className={`
+                              relative h-[14px] w-[14px]
+                              border border-black/90 ${color}
+                              hover:z-10 hover:scale-[1.8] hover:border-white
+                              focus:outline-none focus:ring-1 focus:ring-white
+                              transition-transform duration-75
+                              cursor-pointer
+                            `}
+                          >
+                            {(bounty.status === "DONE" ||
+                              bounty.status === "IN_PROGRESS") && (
+                              <span className="absolute inset-0 m-auto h-1 w-1 rounded-full bg-white/80 pointer-events-none" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  {(hasMoreBounties || bountiesLoading) && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading remaining bounties…
+                    </div>
+                  )}
+                </div>
+              )
+            ) : filteredBounties.length > 0 ? (
               <div
                 className={
                   viewMode === "grid"
@@ -294,10 +715,7 @@ export default function MarketplacePage() {
                     key={bounty.id}
                     bounty={bounty}
                     viewMode={viewMode}
-                    onClick={() => {
-                      setSelectedBounty(bounty);
-                      setIsDetailModalOpen(true);
-                    }}
+                    onClick={() => openBounty(bounty)}
                   />
                 ))}
               </div>
@@ -311,23 +729,17 @@ export default function MarketplacePage() {
               </div>
             )}
 
-            {hasMoreBounties && (
-              <div className="pt-8 flex justify-center">
-                <Button
-                  variant="outline"
-                  className="rounded-full px-8 bg-transparent"
-                  onClick={loadMoreBounties}
-                  disabled={bountiesLoading}
-                >
-                  {bountiesLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Loading…
-                    </>
-                  ) : (
-                    "Load More Bounties"
-                  )}
-                </Button>
+            {hasMoreBounties && viewMode !== "defrag" && (
+              <div
+                ref={loadMoreSentinelRef}
+                className="pt-8 flex justify-center text-xs text-muted-foreground"
+              >
+                {bountiesLoading && (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading more…
+                  </span>
+                )}
               </div>
             )}
           </div>

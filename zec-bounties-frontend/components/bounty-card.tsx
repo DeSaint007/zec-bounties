@@ -40,6 +40,12 @@ import {
   format,
 } from "date-fns";
 import { toast } from "sonner";
+import {
+  bountyCreatorName,
+  bountyCreatorInitial,
+  bountyCreatorAvatarSrc,
+} from "@/lib/displayName";
+import { ProfileLink } from "@/components/profile-link";
 
 function isNewBounty(dateCreated: Date | string): boolean {
   const created = new Date(dateCreated);
@@ -96,7 +102,7 @@ export function BountyCard({
     !userApplication &&
     !isAssignedToCurrentUser;
 
-  const isSuggestedTask = bounty.createdByUser?.role === "CLIENT";
+  const isSuggestedTask = bounty.createdByUser?.role === "HUNTER";
 
   const hasApplied = !!userApplication;
 
@@ -227,7 +233,7 @@ export function BountyCard({
                 <Badge
                   variant="outline"
                   className="text-[10px] h-4 px-1.5 border-sky-500/40 text-sky-600 bg-sky-500/5 gap-1"
-                  title="Suggested by a client — no other applicants permitted"
+                  title="Suggested by a hunter — no other applicants permitted"
                 >
                   <Lock className="h-2.5 w-2.5" /> Suggested
                 </Badge>
@@ -254,16 +260,16 @@ export function BountyCard({
                 <Avatar className="h-5 w-5 border shrink-0">
                   <AvatarImage
                     src={
-                      bounty.createdByUser?.avatar || "/placeholder-user.jpg"
+                      bountyCreatorAvatarSrc(bounty) || "/placeholder-user.jpg"
                     }
                   />
                   <AvatarFallback className="text-[9px]">?</AvatarFallback>
                 </Avatar>
-                <span className="text-[10px] text-muted-foreground truncate max-w-[70px]">
-                  {bounty.createdByUser?.nickname ||
-                    bounty.createdByUser?.name ||
-                    "Unknown"}
-                </span>
+                <ProfileLink user={bounty.team ? null : bounty.createdByUser}>
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[70px]">
+                    {bountyCreatorName(bounty)}
+                  </span>
+                </ProfileLink>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
                 {dueDateLabel && (
@@ -284,10 +290,10 @@ export function BountyCard({
                   <Button
                     size="icon"
                     className="h-6 w-6 bg-green-600 hover:bg-green-700 text-white rounded-full"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsSubmissionDialogOpen(true);
-                    }}
+                    // onClick={(e) => {
+                    //   e.stopPropagation();
+                    //   setIsSubmissionDialogOpen(true);
+                    // }}
                   >
                     <Upload className="h-3 w-3" />
                   </Button>
@@ -396,7 +402,7 @@ export function BountyCard({
           {isSuggestedTask && (
             <span
               className="imd:hidden absolute -top-2 -left-2 z-10 inline-flex items-center gap-0.5 text-[9px] font-bold px-1 py-1 rounded-full bg-sky-500 text-white border-2 border-background shadow-sm"
-              title="Suggested by a client — no other applicants permitted"
+              title="Suggested by a hunter — no other applicants permitted"
             >
               <Lock className="h-2.5 w-2.5" />
             </span>
@@ -405,9 +411,9 @@ export function BountyCard({
             {/* Avatar — always visible */}
             <Avatar className="h-8 w-8 imd:h-10 imd:w-10 border shrink-0">
               <AvatarImage
-                src={bounty.createdByUser?.avatar || "/placeholder-user.jpg"}
+                src={bountyCreatorAvatarSrc(bounty) || "/placeholder-user.jpg"}
               />
-              <AvatarFallback>{"None"}</AvatarFallback>
+              <AvatarFallback>{bountyCreatorInitial(bounty)}</AvatarFallback>
             </Avatar>
 
             {/* Name + title + description (description only on <imd) */}
@@ -418,15 +424,17 @@ export function BountyCard({
                   <Badge
                     variant="outline"
                     className="hidden imd:inline-flex text-[9px] h-4 px-1 border-sky-500/40 text-sky-600 bg-sky-500/5 gap-0.5 shrink-0"
-                    title="Suggested by a client — no other applicants permitted"
+                    title="Suggested by a hunter — no other applicants permitted"
                   >
                     <Lock className="h-2.5 w-2.5" /> Suggested
                   </Badge>
                 )}
               </h3>
-              <p className="text-xs text-muted-foreground truncate">
-                {bounty.createdByUser?.nickname || bounty.createdByUser?.name}
-              </p>
+              <ProfileLink user={bounty.team ? null : bounty.createdByUser}>
+                <p className="text-xs text-muted-foreground truncate">
+                  {bountyCreatorName(bounty)}
+                </p>
+              </ProfileLink>
               {/* Description shown only below imd */}
               <p className="imd:hidden text-xs text-muted-foreground line-clamp-1 mt-0.5 opacity-80">
                 {bounty.description}
@@ -441,17 +449,18 @@ export function BountyCard({
                 </span>
                 <div className="flex items-center gap-1">
                   {bounty.assignees.slice(0, 3).map((a) => (
-                    <Avatar
-                      key={a.userId}
-                      className="h-5 w-5 border -ml-1 first:ml-0"
-                    >
-                      <AvatarImage
-                        src={a.user?.avatar || "/placeholder-user.jpg"}
-                      />
-                      <AvatarFallback className="text-[9px]">
-                        {a.user?.name?.[0]}
-                      </AvatarFallback>
-                    </Avatar>
+                    <ProfileLink key={a.userId} user={a.user}>
+                      <Avatar
+                        className="h-5 w-5 border -ml-1 first:ml-0"
+                      >
+                        <AvatarImage
+                          src={a.user?.avatar || "/placeholder-user.jpg"}
+                        />
+                        <AvatarFallback className="text-[9px]">
+                          {a.user?.name?.[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                    </ProfileLink>
                   ))}
                   {bounty.assignees.length > 3 && (
                     <span className="text-[10px] text-muted-foreground ml-1">
@@ -633,14 +642,16 @@ export function BountyCard({
           <div className="flex gap-3 items-center">
             <Avatar className="h-10 w-10 border">
               <AvatarImage
-                src={bounty.createdByUser?.avatar || "/placeholder-user.jpg"}
+                src={bountyCreatorAvatarSrc(bounty) || "/placeholder-user.jpg"}
               />
-              <AvatarFallback>{"None"}</AvatarFallback>
+              <AvatarFallback>{bountyCreatorInitial(bounty)}</AvatarFallback>
             </Avatar>
             <div>
-              <p className="text-xs text-muted-foreground font-medium">
-                {bounty.createdByUser?.nickname || bounty.createdByUser?.name}
-              </p>
+              <ProfileLink user={bounty.team ? null : bounty.createdByUser}>
+                <p className="text-xs text-muted-foreground font-medium">
+                  {bountyCreatorName(bounty)}
+                </p>
+              </ProfileLink>
               <h3 className="font-semibold line-clamp-1 leading-tight group-hover:text-primary transition-colors">
                 {bounty.title}
               </h3>
@@ -671,7 +682,7 @@ export function BountyCard({
               <Badge
                 variant="outline"
                 className="text-[10px] h-5 uppercase tracking-wider border-sky-500/50 text-sky-600 bg-sky-500/5 gap-1"
-                title="Suggested by a client — no other applicants permitted"
+                title="Suggested by a hunter — no other applicants permitted"
               >
                 <Lock className="h-3 w-3" /> Suggested
               </Badge>
@@ -709,17 +720,18 @@ export function BountyCard({
             {bounty.assignees && bounty.assignees.length > 0 ? (
               <div className="flex items-center gap-1">
                 {bounty.assignees.slice(0, 3).map((a) => (
-                  <Avatar
-                    key={a.userId}
-                    className="h-5 w-5 border ring-1 ring-background -ml-1 first:ml-0"
-                  >
-                    <AvatarImage
-                      src={a.user?.avatar || "/placeholder-user.jpg"}
-                    />
-                    <AvatarFallback className="text-[9px]">
-                      {a.user?.name?.[0]}
-                    </AvatarFallback>
-                  </Avatar>
+                  <ProfileLink key={a.userId} user={a.user}>
+                    <Avatar
+                      className="h-5 w-5 border ring-1 ring-background -ml-1 first:ml-0"
+                    >
+                      <AvatarImage
+                        src={a.user?.avatar || "/placeholder-user.jpg"}
+                      />
+                      <AvatarFallback className="text-[9px]">
+                        {a.user?.name?.[0]}
+                      </AvatarFallback>
+                    </Avatar>
+                  </ProfileLink>
                 ))}
                 {bounty.assignees.length > 3 && (
                   <span className="text-[10px] text-muted-foreground ml-1">

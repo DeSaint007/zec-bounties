@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,9 @@ import {
   ShieldCheck,
   ShieldX,
   ExternalLink,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useBounty } from "@/lib/bounty-context";
@@ -34,7 +37,11 @@ interface ExportRow {
   title: string;
   bountyAmount: number;
   dateCreated: string;
+  completedAt?: string | null;
+  paymentTxId?: string | null;
   chain: "MAIN" | "TEST";
+  exportedAt?: string | null;
+  exportedBy?: string | null;
   assigneeUser?: {
     id: string;
     name?: string;
@@ -60,17 +67,33 @@ interface ExportCompletedModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
+type SortKey =
+  | "date"
+  | "completedAt"
+  | "recipient"
+  | "contact"
+  | "title"
+  | "amount"
+  | "network"
+  | "address"
+  | "ofac";
+
+type SortDirection = "asc" | "desc";
+
 export function ExportCompletedModal({
   open,
   onOpenChange,
 }: ExportCompletedModalProps) {
-  const { fetchExportCompleted, updateUserOfac } = useBounty();
+  const { fetchExportCompleted, markBountiesExported, updateUserOfac } =
+    useBounty();
 
   const [rows, setRows] = useState<ExportRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const toggleOne = (id: string) =>
     setSelectedIds((prev) => {
@@ -100,12 +123,93 @@ export function ExportCompletedModal({
     return row.chain === "MAIN" ? r?.UA_address : r?.z_address;
   };
 
+  // Pulls a comparable primitive (string | number) out of a row for a given column
+  const getSortValue = (row: ExportRow, key: SortKey): string | number => {
+    const recipient = getPrimaryRecipient(row);
+    switch (key) {
+      case "date":
+        return row.dateCreated ? new Date(row.dateCreated).getTime() : 0;
+      case "completedAt":
+        return row.completedAt ? new Date(row.completedAt).getTime() : 0;
+      case "recipient":
+        return (recipient?.name ?? "").toLowerCase();
+      case "contact":
+        return (recipient?.email ?? "").toLowerCase();
+      case "title":
+        return row.title?.toLowerCase() ?? "";
+      case "amount":
+        return row.bountyAmount ?? 0;
+      case "network":
+        return row.chain ?? "";
+      case "address":
+        return (getPayoutAddress(row) ?? "").toLowerCase();
+      case "ofac":
+        return recipient?.ofacVerified ? 1 : 0;
+      default:
+        return "";
+    }
+  };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDirection("asc");
+    }
+  };
+
+  const sortedRows = useMemo(() => {
+    if (!sortKey) return rows;
+    const sorted = [...rows].sort((a, b) => {
+      const aVal = getSortValue(a, sortKey);
+      const bVal = getSortValue(b, sortKey);
+      if (aVal < bVal) return -1;
+      if (aVal > bVal) return 1;
+      return 0;
+    });
+    return sortDirection === "asc" ? sorted : sorted.reverse();
+  }, [rows, sortKey, sortDirection]);
+
+  const SortIcon = ({ column }: { column: SortKey }) => {
+    if (sortKey !== column)
+      return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
+    return sortDirection === "asc" ? (
+      <ChevronUp className="w-3 h-3" />
+    ) : (
+      <ChevronDown className="w-3 h-3" />
+    );
+  };
+
+  const SortableHead = ({
+    column,
+    children,
+    className,
+  }: {
+    column: SortKey;
+    children: React.ReactNode;
+    className?: string;
+  }) => (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => handleSort(column)}
+        className="flex items-center gap-1 text-xs font-medium hover:text-foreground text-muted-foreground select-none"
+      >
+        {children}
+        <SortIcon column={column} />
+      </button>
+    </TableHead>
+  );
+
   const load = async () => {
     setLoading(true);
     setSelectedIds(new Set());
     try {
       const data = await fetchExportCompleted();
-      setRows(data.filter((r: ExportRow) => r.chain === "MAIN"));
+      setRows(
+        data.filter((r: ExportRow) => r.chain === "MAIN" && !r.exportedAt),
+      );
       setLoaded(true);
     } finally {
       setLoading(false);
@@ -116,6 +220,7 @@ export function ExportCompletedModal({
     if (open) {
       setRows([]);
       setLoaded(false);
+      setSortKey(null);
       load();
     }
   }, [open]);
@@ -126,6 +231,7 @@ export function ExportCompletedModal({
       setRows([]);
       setLoaded(false);
       setSelectedIds(new Set());
+      setSortKey(null);
     }
     onOpenChange(val);
   };
@@ -171,9 +277,12 @@ export function ExportCompletedModal({
 
   const handleExport = () => {
     const exportRows =
-      selectedIds.size > 0 ? rows.filter((r) => selectedIds.has(r.id)) : rows;
+      selectedIds.size > 0
+        ? sortedRows.filter((r) => selectedIds.has(r.id))
+        : sortedRows;
 
     const headers = [
+      "Date Created",
       "Date Completed",
       "OFAC Status",
       "Recipient",
@@ -183,12 +292,16 @@ export function ExportCompletedModal({
       "ZEC Amount",
       "Network",
       "Payout Address",
+      "Transaction ID",
     ];
     const csvRows = exportRows.map((row) => {
       const recipient = getPrimaryRecipient(row);
       return [
         row.dateCreated
           ? new Date(row.dateCreated).toLocaleDateString("en-US")
+          : "",
+        row.completedAt
+          ? new Date(row.completedAt).toLocaleDateString("en-US")
           : "",
         recipient?.ofacVerified ? "Completed" : "Pending",
         recipient?.name ?? "",
@@ -198,6 +311,7 @@ export function ExportCompletedModal({
         row.bountyAmount.toString(),
         row.chain === "MAIN" ? "Mainnet" : "Testnet",
         getPayoutAddress(row) ?? "",
+        row.paymentTxId ?? "",
       ]
         .map(escapeCsv)
         .join(",");
@@ -210,6 +324,14 @@ export function ExportCompletedModal({
     a.download = `completed-bounties-${new Date().toISOString().split("T")[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+
+    const exportedIds = exportRows.map((r) => r.id);
+    markBountiesExported(exportedIds)
+      .then(() => {
+        setRows((prev) => prev.filter((r) => !exportedIds.includes(r.id)));
+        setSelectedIds(new Set());
+      })
+      .catch((err) => console.error("Failed to mark bounties exported:", err));
   };
 
   const ofacCount = rows.filter(
@@ -294,18 +416,19 @@ export function ExportCompletedModal({
                       onCheckedChange={toggleAll}
                     />
                   </TableHead>
-                  <TableHead className="text-xs">Date</TableHead>
-                  <TableHead className="text-xs">Recipient</TableHead>
-                  <TableHead className="text-xs">Contact</TableHead>
-                  <TableHead className="text-xs">Bounty</TableHead>
-                  <TableHead className="text-xs">Amount</TableHead>
-                  <TableHead className="text-xs">Network</TableHead>
-                  <TableHead className="text-xs">Payout Address</TableHead>
-                  <TableHead className="text-xs">OFAC</TableHead>
+                  <SortableHead column="date">Created</SortableHead>
+                  <SortableHead column="completedAt">Completed</SortableHead>
+                  <SortableHead column="recipient">Recipient</SortableHead>
+                  <SortableHead column="contact">Contact</SortableHead>
+                  <SortableHead column="title">Bounty</SortableHead>
+                  <SortableHead column="amount">Amount</SortableHead>
+                  <SortableHead column="network">Network</SortableHead>
+                  <SortableHead column="address">Payout Address</SortableHead>
+                  <SortableHead column="ofac">OFAC</SortableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => {
+                {sortedRows.map((row) => {
                   const recipient = getPrimaryRecipient(row);
                   const payoutAddress = getPayoutAddress(row);
                   const isToggling = togglingId === recipient?.id;
@@ -325,6 +448,13 @@ export function ExportCompletedModal({
                       <TableCell className="text-xs whitespace-nowrap">
                         {row.dateCreated
                           ? new Date(row.dateCreated).toLocaleDateString(
+                              "en-US",
+                            )
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs whitespace-nowrap">
+                        {row.completedAt
+                          ? new Date(row.completedAt).toLocaleDateString(
                               "en-US",
                             )
                           : "—"}

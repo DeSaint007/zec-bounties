@@ -1,0 +1,3033 @@
+// app/teams/[teamId]/page.tsx
+"use client";
+
+import { useEffect, useState, useRef } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { useBounty } from "@/lib/bounty-context";
+import type {
+  Team,
+  TeamMember,
+  Bounty,
+  BountyApplication,
+  WorkSubmission,
+  TeamFavorite,
+  TeamVerificationStatus,
+  SyncStatus,
+} from "@/lib/types";
+import { getUserRole } from "../page";
+import { TeamsNewBountyModal } from "@/components/teams/new-bounty-modal";
+import { BountyDetailModal } from "@/components/teams/bounty-detail-modal";
+import { TeamNavbar } from "@/components/layout/teams/navbar";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { ArrowLeft, Loader2, Plus, UserPlus, X } from "lucide-react";
+import { confirmedTotal, fmt } from "@/lib/utils";
+import { TeamBanner } from "@/components/teams/team-banner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  MoreHorizontal,
+  CheckCircle2,
+  XCircle,
+  ExternalLink,
+  Clock,
+  Users,
+  Upload,
+  Pencil,
+  FolderSync,
+  FileText,
+  Wallet,
+  Eye,
+  EyeOff,
+  AlertTriangle,
+  Activity,
+  AlertCircle,
+  XIcon,
+} from "lucide-react";
+import { RxDiscordLogo } from "react-icons/rx";
+import { FaXTwitter } from "react-icons/fa6";
+import { formatStatus } from "@/lib/utils";
+import { displayName } from "@/lib/displayName";
+import { format } from "date-fns";
+import { TeamsEditBountyModal } from "@/components/teams/edit-bounty-modal";
+import { RefreshCw } from "lucide-react";
+import { PaymentTxIdsTable } from "@/components/transactions/payment-tx-table";
+import { Switch } from "@/components/ui/switch";
+import { BountyCard } from "@/components/bounty-card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PaymentRecordsTable } from "@/components/transactions/payment-records-table";
+import { TeamAuthorizePaymentPanel } from "@/components/payments/teams/authorize-payment-panel";
+
+type Tab =
+  | "Overview"
+  | "Bounty program"
+  | "Community"
+  | "Members"
+  | "Treasury"
+  | "Settings";
+const TABS: Tab[] = [
+  "Overview",
+  "Bounty program",
+  "Community",
+  "Members",
+  "Treasury",
+  "Settings",
+];
+
+function formatZec(amount: number) {
+  return `${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ZEC`;
+}
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function statusMeta(status: Bounty["status"]) {
+  switch (status) {
+    case "DONE":
+      return {
+        label: "Done",
+        className: "text-green-600 border-green-500/30 bg-green-500/10",
+      };
+    case "IN_PROGRESS":
+      return {
+        label: "In progress",
+        className: "text-blue-600 border-blue-500/30 bg-blue-500/10",
+      };
+    case "IN_REVIEW":
+      return {
+        label: "In review",
+        className: "text-yellow-600 border-yellow-500/30 bg-yellow-500/10",
+      };
+    case "CANCELLED":
+      return {
+        label: "Cancelled",
+        className: "text-red-600 border-red-500/30 bg-red-500/10",
+      };
+    default:
+      return {
+        label: "To do",
+        className: "text-muted-foreground border-border bg-muted/30",
+      };
+  }
+}
+
+function roleBadgeClass(role: string) {
+  if (role === "OWNER") return "text-primary border-primary/30 bg-primary/10";
+  if (role === "ADMIN") return "text-foreground border-border bg-muted/40";
+  return "text-muted-foreground border-border bg-transparent";
+}
+
+function applicationStatusClass(status?: string) {
+  switch (status) {
+    case "accepted":
+      return "text-green-600 border-green-500/30 bg-green-500/10";
+    case "rejected":
+      return "text-red-600 border-red-500/30 bg-red-500/10";
+    default:
+      return "text-muted-foreground border-border bg-muted/30";
+  }
+}
+
+function submissionStatusClass(status?: string) {
+  switch (status) {
+    case "approved":
+      return "text-green-600 border-green-500/30 bg-green-500/10";
+    case "rejected":
+      return "text-red-600 border-red-500/30 bg-red-500/10";
+    case "needs_revision":
+      return "text-yellow-600 border-yellow-500/30 bg-yellow-500/10";
+    default:
+      return "text-muted-foreground border-border bg-muted/30";
+  }
+}
+
+function VerificationStatusBanner({ teamId }: { teamId: string }) {
+  const { teamVerifications, fetchTeamVerification } = useBounty();
+  const status = teamVerifications[teamId] ?? null;
+
+  useEffect(() => {
+    if (!status) fetchTeamVerification(teamId);
+  }, [teamId]);
+
+  if (!status || status.isVerified) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+      This team is awaiting verification —{" "}
+      <strong>
+        {status.verificationCount}/{status.requiredVerifications}
+      </strong>{" "}
+      admins have signed off. Bounties can't be posted until verification is
+      complete.
+    </div>
+  );
+}
+
+export default function TeamConsolePage() {
+  const params = useParams<{ teamId: string }>();
+  const router = useRouter();
+
+  const {
+    currentUser,
+    teams,
+    teamsLoading,
+    fetchTeams,
+    teamBounties: teamBountiesMap,
+    teamBountiesLoading,
+    fetchTeamBounties,
+  } = useBounty();
+  const [activeTab, setActiveTab] = useState<Tab>("Overview");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showNewBounty, setShowNewBounty] = useState(false);
+
+  useEffect(() => {
+    if (currentUser && teams.length === 0) fetchTeams();
+  }, [currentUser?.id]);
+
+  // Team-scoped bounties (private-team-aware) — separate from the public
+  // global feed now that the backend splits the two.
+  useEffect(() => {
+    if (currentUser && params.teamId) fetchTeamBounties(params.teamId);
+  }, [currentUser?.id, params.teamId]);
+
+  const team = teams.find((t) => t.id === params.teamId) ?? null;
+  const teamBounties = teamBountiesMap[params.teamId] ?? [];
+  const teamBountiesAreLoading =
+    teamBountiesLoading[params.teamId] && teamBounties.length === 0;
+
+  if (!currentUser) {
+    return (
+      <main className="min-h-screen bg-background text-foreground">
+        <TeamNavbar
+          isTeam
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+        <div className="xl:container xl:mx-auto px-4 py-16 text-center">
+          <p className="text-muted-foreground">Log in to view this team.</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (teamsLoading && !team) {
+    return (
+      <main className="min-h-screen bg-background text-foreground">
+        <TeamNavbar
+          isTeam
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+        <div className="xl:container xl:mx-auto px-4 py-20 flex flex-col items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+          <p className="text-muted-foreground">Loading team...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!team) {
+    return (
+      <main className="min-h-screen bg-background text-foreground">
+        <TeamNavbar
+          isTeam
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+        />
+        <div className="xl:container xl:mx-auto px-4 py-16 text-center">
+          <p className="mb-4 text-muted-foreground">
+            Team not found, or you don't have access to it.
+          </p>
+          <Button variant="outline" onClick={() => router.push("/teams")}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Back to all teams
+          </Button>
+        </div>
+      </main>
+    );
+  }
+
+  const role = getUserRole(team, currentUser.id, currentUser.role === "ADMIN");
+  const canManage = role === "OWNER" || role === "ADMIN";
+
+  return (
+    <main className="min-h-screen bg-background text-foreground">
+      <TeamNavbar
+        isTeam
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+      />
+
+      <div className="xl:container xl:mx-auto px-4 py-8">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => router.push("/teams")}
+          className="mb-6 -ml-2 text-muted-foreground hover:text-primary"
+        >
+          <ArrowLeft className="mr-1.5 h-3.5 w-3.5" /> All teams
+        </Button>
+
+        <TeamBanner
+          teamId={team.id}
+          bannerUrl={team.banner}
+          canManage={canManage}
+        />
+
+        <div className="mb-8 flex flex-col gap-4 imd:flex-row imd:items-start imd:justify-between">
+          <div className="flex items-start gap-4">
+            <Avatar className="h-14 w-14 border shrink-0">
+              {team.logo && (
+                <AvatarImage src={team.logo} alt={`${team.name} logo`} />
+              )}
+              <AvatarFallback className="text-lg font-semibold">
+                {initials(team.name)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <h1 className="text-3xl font-extrabold tracking-tight">
+                  {team.name}
+                </h1>
+                <div className="flex items-center gap-1.5">
+                  <Badge variant="outline" className={roleBadgeClass(role)}>
+                    {role}
+                  </Badge>
+                  <Badge
+                    variant="outline"
+                    className={
+                      team.isVerified
+                        ? "text-green-600 border-green-500/30 bg-green-500/10"
+                        : "text-amber-600 border-amber-500/30 bg-amber-500/10"
+                    }
+                  >
+                    {team.isVerified ? "Verified" : "Pending verification"}
+                  </Badge>
+                </div>
+              </div>
+              <p className="mt-1 text-muted-foreground">
+                {team.description || "No description yet."}
+              </p>
+            </div>
+          </div>
+
+          {canManage &&
+            (team.isVerified ? (
+              <Button
+                size="sm"
+                className="rounded-full shrink-0"
+                onClick={() => setShowNewBounty(true)}
+              >
+                <Plus className="mr-1.5 h-4 w-4" /> New bounty
+              </Button>
+            ) : (
+              <Badge
+                variant="outline"
+                className="w-fit shrink-0 text-amber-600 border-amber-500/30 bg-amber-500/10"
+              >
+                Verification required to post bounties
+              </Badge>
+            ))}
+        </div>
+
+        <div
+          className="mb-8 flex gap-1 overflow-x-auto border-b"
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
+        >
+          {TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium transition ${
+                activeTab === tab
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+
+        {activeTab === "Overview" && (
+          <OverviewTab
+            team={team}
+            teamBounties={teamBounties}
+            teamBountiesLoading={teamBountiesAreLoading}
+            canManage={canManage}
+          />
+        )}
+        {activeTab === "Bounty program" && (
+          <BountyProgramTab
+            team={team}
+            teamBounties={teamBounties}
+            teamBountiesLoading={teamBountiesAreLoading}
+            canManage={canManage}
+          />
+        )}
+        {activeTab === "Members" && (
+          <MembersTab team={team} canManage={canManage} />
+        )}
+        {activeTab === "Community" && <CommunityTab team={team} />}
+        {activeTab === "Treasury" && (
+          <TreasuryTab
+            team={team}
+            teamBounties={teamBounties}
+            canManage={canManage}
+          />
+        )}
+        {activeTab === "Settings" && (
+          <SettingsTab
+            team={team}
+            currentUserId={currentUser.id}
+            canManage={canManage}
+            isOwner={role === "OWNER"}
+          />
+        )}
+      </div>
+
+      <TeamsNewBountyModal
+        open={showNewBounty}
+        onOpenChange={setShowNewBounty}
+        onSuccess={() => setShowNewBounty(false)}
+        onCancel={() => setShowNewBounty(false)}
+        defaultTeamId={team.id}
+        defaultTeamName={team.name}
+      />
+    </main>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border bg-card p-4">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xl font-bold">{value}</div>
+    </div>
+  );
+}
+
+function statusDotColor(status: Bounty["status"]) {
+  switch (status) {
+    case "TO_DO":
+      return "bg-slate-400";
+    case "IN_PROGRESS":
+      return "bg-blue-500";
+    case "IN_REVIEW":
+      return "bg-yellow-500";
+    case "DONE":
+      return "bg-green-500";
+    default:
+      return "bg-red-500";
+  }
+}
+
+function EmptyTxState({
+  onRefresh,
+  loading,
+}: {
+  onRefresh: () => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed bg-muted/20 py-12 text-center">
+      <RefreshCw className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+      <p className="text-sm text-muted-foreground">
+        No transactions loaded yet.
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-3 gap-2"
+        onClick={onRefresh}
+        disabled={loading}
+      >
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <RefreshCw className="h-3.5 w-3.5" />
+        )}
+        Refresh
+      </Button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Overview tab — small local presentational helpers kept here so the table
+// and both dialogs render pending/approved/rejected state the same way
+// everywhere. Uses formatStatus/displayName/statusDotColor/formatZec/icons
+// already imported and defined above in this file.
+// ---------------------------------------------------------------------------
+
+function StatusPill({ status }: { status: Bounty["status"] }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-sm">
+      <span className={`h-2 w-2 rounded-full ${statusDotColor(status)}`} />
+      {formatStatus(status)}
+    </span>
+  );
+}
+
+function CountPill({
+  count,
+  pending,
+  icon: Icon,
+  emptyLabel,
+  onClick,
+}: {
+  count: number;
+  pending: number;
+  icon: React.ElementType;
+  emptyLabel: string;
+  onClick: () => void;
+}) {
+  const tone =
+    pending > 0
+      ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+      : count > 0
+        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+        : "border-dashed text-muted-foreground";
+
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-md border px-2 text-xs font-medium transition-colors hover:opacity-80 ${tone}`}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {count > 0 ? (
+        <>
+          {count}
+          {pending > 0 && (
+            <span className="rounded-full bg-amber-500/20 px-1 text-[10px] leading-4">
+              {pending} pending
+            </span>
+          )}
+        </>
+      ) : (
+        emptyLabel
+      )}
+    </button>
+  );
+}
+
+function ReviewStatusNote({
+  status,
+}: {
+  status: "approved" | "rejected" | "needs_revision";
+}) {
+  const config = {
+    approved: {
+      icon: CheckCircle2,
+      text: "Approved",
+      classes:
+        "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300",
+    },
+    rejected: {
+      icon: XCircle,
+      text: "Rejected",
+      classes:
+        "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300",
+    },
+    needs_revision: {
+      icon: FileText,
+      text: "Revision requested — bounty back to In Progress",
+      classes:
+        "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-800 dark:bg-orange-900/20 dark:text-orange-300",
+    },
+  }[status];
+
+  const Icon = config.icon;
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-md border px-3 py-2 ${config.classes}`}
+    >
+      <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+      <p className="text-xs">{config.text}</p>
+    </div>
+  );
+}
+
+function OverviewTab({
+  team,
+  teamBounties,
+  teamBountiesLoading,
+  canManage,
+}: {
+  team: Team;
+  teamBounties: Bounty[];
+  teamBountiesLoading: boolean;
+  canManage: boolean;
+}) {
+  const {
+    currentUser,
+    fetchTeamApplications,
+    fetchTeamSubmissions,
+    acceptApplication,
+    rejectApplication,
+    reviewWorkSubmission,
+    rejectOtherSubmissions,
+    teamActivityVersion,
+  } = useBounty();
+
+  const [applications, setApplications] = useState<BountyApplication[]>([]);
+  const [submissions, setSubmissions] = useState<WorkSubmission[]>([]);
+  const [managingBountyId, setManagingBountyId] = useState<string | null>(null);
+  const [isManagingApplications, setIsManagingApplications] = useState(false);
+  const [isManagingSubmissions, setIsManagingSubmissions] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [editingBounty, setEditingBounty] = useState<Bounty | null>(null);
+  const [assigneeSectionBounty, setAssigneeSectionBounty] =
+    useState<Bounty | null>(null);
+
+  const loadActivity = async () => {
+    const [apps, subs] = await Promise.all([
+      fetchTeamApplications(team.id),
+      fetchTeamSubmissions(team.id),
+    ]);
+    setApplications(apps);
+    setSubmissions(subs);
+  };
+
+  useEffect(() => {
+    loadActivity();
+  }, [team.id, teamActivityVersion]);
+
+  const totalPaid = teamBounties
+    .filter((b) => b.status === "DONE")
+    .reduce((sum, b) => sum + b.bountyAmount, 0);
+  const active = teamBounties.filter(
+    (b) => b.status === "IN_PROGRESS" || b.status === "IN_REVIEW",
+  ).length;
+
+  const pendingApplicationsTotal = applications.filter(
+    (a) => a.status === "pending",
+  ).length;
+  const pendingSubmissionsTotal = submissions.filter(
+    (s) => s.status === "pending",
+  ).length;
+
+  const managingBounty = teamBounties.find((b) => b.id === managingBountyId);
+  const managingApplications = applications.filter(
+    (a) => a.bountyId === managingBountyId,
+  );
+  const managingSubmissions = submissions.filter(
+    (s) => s.bountyId === managingBountyId,
+  );
+
+  const openApplications = (bountyId: string) => {
+    setManagingBountyId(bountyId);
+    setIsManagingApplications(true);
+  };
+
+  const openSubmissions = (bountyId: string) => {
+    setManagingBountyId(bountyId);
+    setIsManagingSubmissions(true);
+  };
+
+  // Jump straight to the first bounty that actually needs a decision.
+  const goToFirstPending = () => {
+    const bountyWithPendingApp = teamBounties.find((b) =>
+      applications.some((a) => a.bountyId === b.id && a.status === "pending"),
+    );
+    if (bountyWithPendingApp) {
+      openApplications(bountyWithPendingApp.id);
+      return;
+    }
+    const bountyWithPendingSub = teamBounties.find((b) =>
+      submissions.some((s) => s.bountyId === b.id && s.status === "pending"),
+    );
+    if (bountyWithPendingSub) openSubmissions(bountyWithPendingSub.id);
+  };
+
+  const handleApplicationAction = async (
+    applicationId: string,
+    action: "accept" | "reject",
+  ) => {
+    setIsUpdating(true);
+    try {
+      if (action === "accept") await acceptApplication(applicationId);
+      else await rejectApplication(applicationId);
+      await loadActivity();
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleSubmissionReview = async (
+    submissionId: string,
+    action: "approved" | "rejected" | "needs_revision",
+    reviewNotes?: string,
+  ) => {
+    setIsUpdating(true);
+    try {
+      await reviewWorkSubmission(submissionId, { status: action, reviewNotes });
+      await loadActivity();
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleRejectOthers = async (submissionId: string) => {
+    setIsUpdating(true);
+    try {
+      await rejectOtherSubmissions(submissionId);
+      await loadActivity();
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 imd:grid-cols-4">
+        <StatCard label="Members" value={String(team.members.length)} />
+        <StatCard label="Active bounties" value={String(active)} />
+        <StatCard label="Paid out" value={formatZec(totalPaid)} />
+        <StatCard
+          label="Treasury"
+          value={team.wallet ? "See Treasury tab" : "—"}
+        />
+      </div>
+
+      {!team.isVerified && <VerificationStatusBanner teamId={team.id} />}
+
+      {/* {canManage &&
+        (pendingApplicationsTotal > 0 || pendingSubmissionsTotal > 0) && (
+          <button
+            onClick={goToFirstPending}
+            className="flex w-full items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-left text-sm transition-colors hover:bg-amber-500/10"
+          >
+            <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="text-amber-900 dark:text-amber-200">
+              {pendingApplicationsTotal > 0 &&
+                `${pendingApplicationsTotal} application${pendingApplicationsTotal !== 1 ? "s" : ""} waiting on you`}
+              {pendingApplicationsTotal > 0 &&
+                pendingSubmissionsTotal > 0 &&
+                " · "}
+              {pendingSubmissionsTotal > 0 &&
+                `${pendingSubmissionsTotal} submission${pendingSubmissionsTotal !== 1 ? "s" : ""} to review`}
+            </span>
+          </button>
+        )} */}
+
+      <div className="rounded-xl border bg-card overflow-hidden">
+        <div className="flex items-center justify-between border-b px-4 py-3 sm:px-6">
+          <div>
+            <h2 className="text-sm font-semibold">Team bounties</h2>
+            <p className="text-xs text-muted-foreground">
+              Every bounty posted under {team.name}
+            </p>
+          </div>
+        </div>
+
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead className="py-3 pl-4 sm:pl-6">Bounty</TableHead>
+              <TableHead className="hidden md:table-cell">Category</TableHead>
+              <TableHead className="hidden sm:table-cell">Status</TableHead>
+              <TableHead className="hidden lg:table-cell">Assignee</TableHead>
+              <TableHead className="hidden lg:table-cell">
+                Applications
+              </TableHead>
+              <TableHead className="hidden lg:table-cell">
+                Submissions
+              </TableHead>
+              <TableHead className="hidden sm:table-cell text-right">
+                Reward
+              </TableHead>
+              {canManage && (
+                <TableHead className="text-right pr-4 sm:pr-6">
+                  Actions
+                </TableHead>
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {teamBountiesLoading ? (
+              <TableRow>
+                <TableCell
+                  colSpan={canManage ? 8 : 7}
+                  className="text-center py-12 text-muted-foreground"
+                >
+                  <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                </TableCell>
+              </TableRow>
+            ) : teamBounties.length === 0 ? (
+              <TableRow>
+                <TableCell
+                  colSpan={canManage ? 8 : 7}
+                  className="text-center py-12"
+                >
+                  <p className="text-sm font-medium">No bounties yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Bounties posted under {team.name} will show up here.
+                  </p>
+                </TableCell>
+              </TableRow>
+            ) : (
+              teamBounties.map((bounty) => {
+                const bountyApps = applications.filter(
+                  (a) => a.bountyId === bounty.id,
+                );
+                const pendingApps = bountyApps.filter(
+                  (a) => a.status === "pending",
+                ).length;
+                const bountySubs = submissions.filter(
+                  (s) => s.bountyId === bounty.id,
+                );
+                const pendingSubs = bountySubs.filter(
+                  (s) => s.status === "pending",
+                ).length;
+
+                return (
+                  <TableRow
+                    key={bounty.id}
+                    className="hover:bg-muted/30 transition-colors"
+                  >
+                    <TableCell className="font-medium py-3 pl-4 sm:pl-6 max-w-[180px] sm:max-w-[240px]">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Avatar className="h-7 w-7 border flex-shrink-0">
+                                <AvatarImage
+                                  src={
+                                    bounty.createdByUser?.avatar ||
+                                    "/placeholder-user.jpg"
+                                  }
+                                />
+                                <AvatarFallback>
+                                  {displayName(bounty.createdByUser)[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              {displayName(bounty.createdByUser)}
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                        <div className="min-w-0 flex-1">
+                          <button
+                            className="block w-full truncate text-left hover:underline hover:text-primary transition-colors text-sm font-medium"
+                            onClick={() => setEditingBounty(bounty)}
+                          >
+                            {bounty.title}
+                          </button>
+                          <div className="flex items-center gap-2 mt-1 sm:hidden flex-wrap">
+                            <StatusPill status={bounty.status} />
+                            <span className="text-[11px] text-muted-foreground">
+                              ·
+                            </span>
+                            <span className="text-[11px] tabular-nums text-muted-foreground">
+                              {bounty.bountyAmount.toLocaleString()} ZEC
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <Badge variant="outline" className="text-xs font-medium">
+                        {bounty.categoryId ?? "Uncategorized"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell">
+                      <StatusPill status={bounty.status} />
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      {bounty.assignees && bounty.assignees.length > 0 ? (
+                        <button
+                          className="flex items-center gap-2 hover:opacity-75 transition-opacity"
+                          onClick={() => setAssigneeSectionBounty(bounty)}
+                        >
+                          <div className="flex items-center">
+                            {bounty.assignees.slice(0, 3).map((a, i) => (
+                              <Avatar
+                                key={a.userId}
+                                className="h-6 w-6 border-2 border-background"
+                                style={{
+                                  marginLeft: i === 0 ? 0 : "-8px",
+                                  zIndex: 3 - i,
+                                }}
+                              >
+                                <AvatarImage
+                                  src={
+                                    a.user?.avatar || "/placeholder-user.jpg"
+                                  }
+                                />
+                                <AvatarFallback className="text-[9px]">
+                                  {displayName(a.user)[0]}
+                                </AvatarFallback>
+                              </Avatar>
+                            ))}
+                            {bounty.assignees.length > 3 && (
+                              <div
+                                className="h-6 w-6 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[9px] font-bold text-muted-foreground"
+                                style={{ marginLeft: "-8px" }}
+                              >
+                                +{bounty.assignees.length - 3}
+                              </div>
+                            )}
+                          </div>
+                          <span className="text-xs font-medium">
+                            {bounty.assignees.length === 1
+                              ? displayName(bounty.assignees[0].user)
+                              : `${bounty.assignees.length} assignees`}
+                          </span>
+                        </button>
+                      ) : (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs gap-1 px-2 border border-dashed"
+                          onClick={() => setAssigneeSectionBounty(bounty)}
+                        >
+                          <UserPlus className="h-3 w-3" /> Assign
+                        </Button>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <CountPill
+                        count={bountyApps.length}
+                        pending={pendingApps}
+                        icon={Users}
+                        emptyLabel="None"
+                        onClick={() => openApplications(bounty.id)}
+                      />
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell">
+                      <CountPill
+                        count={bountySubs.length}
+                        pending={pendingSubs}
+                        icon={Upload}
+                        emptyLabel="None"
+                        onClick={() => openSubmissions(bounty.id)}
+                      />
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell text-right tabular-nums text-sm">
+                      {bounty.bountyAmount.toLocaleString()} ZEC
+                    </TableCell>
+                    {canManage && (
+                      <TableCell className="text-right pr-4 sm:pr-6">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Manage</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => setEditingBounty(bounty)}
+                            >
+                              <Pencil className="h-4 w-4 mr-2" />
+                              Edit bounty
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openApplications(bounty.id)}
+                            >
+                              <Users className="h-4 w-4 mr-2" />
+                              View applications
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openSubmissions(bounty.id)}
+                            >
+                              <Upload className="h-4 w-4 mr-2" />
+                              Review submissions
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                );
+              })
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <TeamsEditBountyModal
+        bounty={editingBounty}
+        open={!!editingBounty}
+        onOpenChange={(open) => {
+          if (!open) setEditingBounty(null);
+        }}
+      />
+
+      <TeamsEditBountyModal
+        bounty={assigneeSectionBounty}
+        open={!!assigneeSectionBounty}
+        defaultSection="assignees"
+        onOpenChange={(open) => {
+          if (!open) setAssigneeSectionBounty(null);
+        }}
+      />
+
+      {/* ── Applications dialog ── */}
+      <Dialog
+        open={isManagingApplications}
+        onOpenChange={setIsManagingApplications}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="pb-3 border-b">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <Users className="w-4 h-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <DialogTitle className="text-base font-medium leading-tight">
+                    Applications
+                  </DialogTitle>
+                  {managingBounty && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {managingBounty.title} · {managingApplications.length}{" "}
+                      applicant{managingApplications.length !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {managingBounty && (
+                <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0">
+                  {managingBounty.bountyAmount.toLocaleString()} ZEC
+                </span>
+              )}
+            </div>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2 py-2">
+            {managingApplications.length > 0 ? (
+              managingApplications.map((application) => (
+                <div
+                  key={application.id}
+                  className="border rounded-lg px-3.5 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Avatar className="h-8 w-8 flex-shrink-0 border">
+                        <AvatarImage
+                          src={
+                            application.applicantUser?.avatar ||
+                            "/placeholder-user.jpg"
+                          }
+                        />
+                        <AvatarFallback className="text-[11px]">
+                          {displayName(application.applicantUser)[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium leading-tight truncate">
+                          {displayName(application.applicantUser)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          Applied{" "}
+                          {format(
+                            new Date(application.appliedAt),
+                            "MMM d, yyyy",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] px-2 py-0.5 rounded-full ${
+                          application.status === "accepted"
+                            ? "text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20"
+                            : application.status === "rejected"
+                              ? "text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+                              : "text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20"
+                        }`}
+                      >
+                        {application.status || "pending"}
+                      </Badge>
+                      {application.status === "pending" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px] gap-1 border border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                            onClick={() =>
+                              handleApplicationAction(application.id, "accept")
+                            }
+                            disabled={isUpdating}
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            Accept
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-[11px] gap-1 border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                            onClick={() =>
+                              handleApplicationAction(application.id, "reject")
+                            }
+                            disabled={isUpdating}
+                          >
+                            <XCircle className="w-3 h-3" />
+                            Decline
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <p className="mt-2.5 text-xs text-muted-foreground leading-relaxed pl-[42px] ml-3.5 border-l-2 wrap-anywhere">
+                    {application.message}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center py-10 text-center">
+                <Users className="w-9 h-9 text-muted-foreground/40 mb-3" />
+                <p className="text-sm font-medium">No applications yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  You'll see people here once they apply for this bounty.
+                </p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Submissions dialog ── */}
+      <Dialog
+        open={isManagingSubmissions}
+        onOpenChange={setIsManagingSubmissions}
+      >
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="pb-3 border-b">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <Upload className="w-4 h-4 mt-0.5 text-muted-foreground flex-shrink-0" />
+                <div>
+                  <DialogTitle className="text-base font-medium leading-tight">
+                    Submissions
+                  </DialogTitle>
+                  {managingBounty && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {managingBounty.title} · {managingSubmissions.length}{" "}
+                      submission{managingSubmissions.length !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                </div>
+              </div>
+              {managingBounty && (
+                <span className="text-xs tabular-nums text-muted-foreground flex-shrink-0">
+                  {managingBounty.bountyAmount.toLocaleString()} ZEC
+                </span>
+              )}
+            </div>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2 py-2">
+            {managingSubmissions.length > 0 ? (
+              managingSubmissions.map((submission) => (
+                <div
+                  key={submission.id}
+                  className="border rounded-lg px-3.5 py-3 space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      <Avatar className="h-8 w-8 flex-shrink-0 border">
+                        <AvatarImage
+                          src={
+                            submission.submitterUser?.avatar ||
+                            "/placeholder-user.jpg"
+                          }
+                        />
+                        <AvatarFallback className="text-[11px]">
+                          {displayName(submission.submitterUser)[0]}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium leading-tight truncate">
+                          {displayName(submission.submitterUser)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {format(
+                            new Date(submission.submittedAt),
+                            "MMM d, yyyy",
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ${
+                        submission.status === "approved"
+                          ? "text-green-700 dark:text-green-400 border-green-300 dark:border-green-800 bg-green-50 dark:bg-green-900/20"
+                          : submission.status === "rejected"
+                            ? "text-red-700 dark:text-red-400 border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-900/20"
+                            : submission.status === "needs_revision"
+                              ? "text-orange-700 dark:text-orange-400 border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20"
+                              : "text-yellow-700 dark:text-yellow-400 border-yellow-300 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/20"
+                      }`}
+                    >
+                      {submission.status}
+                    </Badge>
+                  </div>
+
+                  <p className="text-xs text-muted-foreground leading-relaxed break-words whitespace-pre-wrap pl-[42px] ml-[14px] border-l-2">
+                    {submission.description}
+                  </p>
+
+                  {submission.deliverableUrl && (
+                    <a
+                      href={submission.deliverableUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 text-xs text-primary hover:underline break-all pl-[42px] ml-[14px]"
+                    >
+                      <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                      {submission.deliverableUrl}
+                    </a>
+                  )}
+
+                  {submission.status === "pending" && (
+                    <div className="border-t pt-3 space-y-2.5">
+                      <Textarea
+                        id={`team-review-notes-${submission.id}`}
+                        placeholder="Add feedback for the submitter..."
+                        className="text-sm min-h-[64px]"
+                        rows={2}
+                      />
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const textarea = document.getElementById(
+                              `team-review-notes-${submission.id}`,
+                            ) as HTMLTextAreaElement;
+                            handleSubmissionReview(
+                              submission.id,
+                              "approved",
+                              textarea?.value,
+                            );
+                          }}
+                          disabled={isUpdating}
+                          className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            const textarea = document.getElementById(
+                              `team-review-notes-${submission.id}`,
+                            ) as HTMLTextAreaElement;
+                            handleSubmissionReview(
+                              submission.id,
+                              "needs_revision",
+                              textarea?.value,
+                            );
+                          }}
+                          disabled={isUpdating}
+                          className="flex-1"
+                        >
+                          <FileText className="w-3.5 h-3.5 mr-1.5" />
+                          Revise
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => {
+                            const textarea = document.getElementById(
+                              `team-review-notes-${submission.id}`,
+                            ) as HTMLTextAreaElement;
+                            handleSubmissionReview(
+                              submission.id,
+                              "rejected",
+                              textarea?.value,
+                            );
+                          }}
+                          disabled={isUpdating}
+                          className="flex-1"
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                          Reject
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {submission.status === "approved" && (
+                    <div className="space-y-2">
+                      <ReviewStatusNote status="approved" />
+
+                      {submissions.some(
+                        (s) =>
+                          s.bountyId === submission.bountyId &&
+                          s.id !== submission.id &&
+                          s.status === "pending",
+                      ) && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                "Reject all other pending submissions for this bounty? This can't be undone.",
+                              )
+                            ) {
+                              handleRejectOthers(submission.id);
+                            }
+                          }}
+                          disabled={isUpdating}
+                          className="w-full gap-1.5 text-xs text-destructive hover:bg-destructive/10"
+                        >
+                          <XCircle className="h-3.5 w-3.5" />
+                          Reject remaining pending submissions
+                        </Button>
+                      )}
+                    </div>
+                  )}
+
+                  {submission.status === "rejected" && (
+                    <ReviewStatusNote status="rejected" />
+                  )}
+
+                  {submission.status === "needs_revision" && (
+                    <ReviewStatusNote status="needs_revision" />
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="flex flex-col items-center py-10 text-center">
+                <Upload className="w-9 h-9 text-muted-foreground/40 mb-3" />
+                <p className="text-sm font-medium">No submissions yet</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Work submitted against this bounty will show up here.
+                </p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function BountyProgramTab({
+  team,
+  teamBounties,
+  teamBountiesLoading,
+  canManage,
+}: {
+  team: Team;
+  teamBounties: Bounty[];
+  teamBountiesLoading: boolean;
+  canManage: boolean;
+}) {
+  const [selectedBounty, setSelectedBounty] = useState<Bounty | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="min-w-0 flex-1">
+        <h2 className="mb-4 text-sm font-semibold text-muted-foreground">
+          {teamBounties.length} bounties
+        </h2>
+
+        {teamBountiesLoading ? (
+          <div className="flex justify-center rounded-xl border border-dashed px-4 py-10 bg-muted/20">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : teamBounties.length === 0 ? (
+          <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground bg-muted/20">
+            No bounties posted for this team yet.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 imd:grid-cols-3">
+            {teamBounties.map((bounty) => (
+              <BountyCard
+                key={bounty.id}
+                bounty={bounty}
+                viewMode="grid"
+                onClick={() => {
+                  setSelectedBounty(bounty);
+                  setIsDetailModalOpen(true);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="w-full shrink-0 lg:sticky lg:top-6 lg:w-[300px] xl:w-[340px]">
+        <TeamActivityFeed teamId={team.id} canManage={canManage} />
+      </div>
+
+      <BountyDetailModal
+        bounty={selectedBounty}
+        open={isDetailModalOpen}
+        onOpenChange={setIsDetailModalOpen}
+      />
+    </div>
+  );
+}
+
+function TeamActivityFeed({
+  teamId,
+  canManage,
+}: {
+  teamId: string;
+  canManage: boolean;
+}) {
+  const {
+    fetchTeamApplications,
+    fetchTeamSubmissions,
+    acceptApplication,
+    rejectApplication,
+    reviewWorkSubmission,
+    teamActivityVersion,
+  } = useBounty();
+  const [applications, setApplications] = useState<BountyApplication[]>([]);
+  const [submissions, setSubmissions] = useState<WorkSubmission[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [actioningId, setActioningId] = useState<string | null>(null);
+
+  const loadActivity = async () => {
+    setLoading(true);
+    try {
+      const [apps, subs] = await Promise.all([
+        fetchTeamApplications(teamId),
+        fetchTeamSubmissions(teamId),
+      ]);
+      setApplications(apps);
+      setSubmissions(subs);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadActivity();
+  }, [teamId, teamActivityVersion]);
+
+  const pendingApplications = applications.filter(
+    (a) => a.status === "pending",
+  );
+  const pendingSubmissions = submissions.filter((s) => s.status === "pending");
+
+  const handleAccept = async (id: string) => {
+    setActioningId(id);
+    try {
+      await acceptApplication(id);
+      await loadActivity();
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleReject = async (id: string) => {
+    setActioningId(id);
+    try {
+      await rejectApplication(id);
+      await loadActivity();
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  const handleReview = async (
+    id: string,
+    status: "approved" | "rejected" | "needs_revision",
+  ) => {
+    setActioningId(id);
+    try {
+      await reviewWorkSubmission(id, { status });
+      await loadActivity();
+    } finally {
+      setActioningId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mb-6 flex items-center gap-2 rounded-xl border bg-card px-4 py-3 text-xs text-muted-foreground">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading team activity...
+      </div>
+    );
+  }
+
+  if (applications.length === 0 && submissions.length === 0) return null;
+
+  return (
+    <div className="mb-6 space-y-5 rounded-xl border bg-card p-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          Team activity
+        </h3>
+        <span className="text-[11px] text-muted-foreground">
+          {pendingApplications.length + pendingSubmissions.length} pending
+        </span>
+      </div>
+
+      {applications.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Applications ({applications.length})
+          </h4>
+          <div className="space-y-2">
+            {applications.map((app) => (
+              <div key={app.id} className="rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">
+                      {app.applicantUser?.nickname ||
+                        app.applicantUser?.name ||
+                        "Unknown"}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      on {app.bounty?.title ?? "Unknown bounty"}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {app.message}
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`shrink-0 text-[11px] ${applicationStatusClass(app.status)}`}
+                  >
+                    {app.status}
+                  </Badge>
+                </div>
+                {canManage && app.status === "pending" && (
+                  <div className="mt-2.5 flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 rounded-md text-[11px]"
+                      onClick={() => handleAccept(app.id)}
+                      disabled={actioningId === app.id}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 rounded-md text-[11px]"
+                      onClick={() => handleReject(app.id)}
+                      disabled={actioningId === app.id}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {submissions.length > 0 && (
+        <div>
+          <h4 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Submissions ({submissions.length})
+          </h4>
+          <div className="space-y-2">
+            {submissions.map((sub) => (
+              <div key={sub.id} className="rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium">
+                      {sub.submitterUser?.nickname ||
+                        sub.submitterUser?.name ||
+                        "Unknown"}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      on {sub.bounty?.title ?? "Unknown bounty"}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {sub.description}
+                    </p>
+                    {sub.deliverableUrl && (
+                      <a
+                        href={sub.deliverableUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-block break-all text-[11px] text-primary hover:underline"
+                      >
+                        {sub.deliverableUrl}
+                      </a>
+                    )}
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`shrink-0 text-[11px] ${submissionStatusClass(sub.status)}`}
+                  >
+                    {sub.status}
+                  </Badge>
+                </div>
+                {canManage && sub.status === "pending" && (
+                  <div className="mt-2.5 flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 rounded-md text-[11px]"
+                      onClick={() => handleReview(sub.id, "approved")}
+                      disabled={actioningId === sub.id}
+                    >
+                      Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 rounded-md text-[11px]"
+                      onClick={() => handleReview(sub.id, "needs_revision")}
+                      disabled={actioningId === sub.id}
+                    >
+                      Needs revision
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      className="h-7 rounded-md text-[11px]"
+                      onClick={() => handleReview(sub.id, "rejected")}
+                      disabled={actioningId === sub.id}
+                    >
+                      Reject
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MembersTab({ team, canManage }: { team: Team; canManage: boolean }) {
+  const { addTeamMembers, removeTeamMember, users, fetchUsers } = useBounty();
+  const [showInvite, setShowInvite] = useState(false);
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [inviteRole, setInviteRole] = useState<"ADMIN" | "MEMBER">("MEMBER");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+
+  const memberIds = new Set(team.members.map((m) => m.userId));
+  const candidates = users.filter(
+    (u) => (u.role === "TEAM" || u.role === "ADMIN") && !memberIds.has(u.id),
+  );
+
+  const handleInvite = async () => {
+    if (!selectedUserId) return;
+    setSubmitting(true);
+    try {
+      await addTeamMembers(team.id, [selectedUserId], inviteRole);
+      setShowInvite(false);
+      setSelectedUserId("");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          {team.members.length} members
+        </h2>
+        {canManage && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowInvite(true)}
+          >
+            <UserPlus className="mr-1.5 h-4 w-4" /> Invite member
+          </Button>
+        )}
+      </div>
+
+      <div className="divide-y rounded-xl border bg-card">
+        {team.members.map((member: TeamMember) => (
+          <div
+            key={member.userId}
+            className="flex items-center justify-between gap-4 px-4 py-3"
+          >
+            <div className="flex items-center gap-3">
+              <Avatar className="h-9 w-9 border">
+                <AvatarImage src={(member as any).user?.avatar || undefined} />
+                <AvatarFallback className="text-xs">
+                  {initials(
+                    (member as any).user?.name ||
+                      (member as any).user?.email ||
+                      "?",
+                  )}
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <div className="text-sm font-medium">
+                  {(member as any).user?.name || "Unnamed"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {(member as any).user?.email}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="outline"
+                className={`shrink-0 text-[11px] ${roleBadgeClass(member.role)}`}
+              >
+                {member.role}
+              </Badge>
+              {canManage && member.role !== "OWNER" && (
+                <button
+                  type="button"
+                  onClick={() => removeTeamMember(team.id, member.userId)}
+                  className="text-xs text-red-500 hover:text-red-600"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Dialog open={showInvite} onOpenChange={setShowInvite}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite member</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="invite-user" className="text-xs">
+                User
+              </Label>
+              <select
+                id="invite-user"
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="">Select a user...</option>
+                {candidates.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name || u.email}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="invite-role" className="text-xs">
+                Role
+              </Label>
+              <select
+                id="invite-role"
+                value={inviteRole}
+                onChange={(e) =>
+                  setInviteRole(e.target.value as "ADMIN" | "MEMBER")
+                }
+                className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary"
+              >
+                <option value="MEMBER">Member</option>
+                <option value="ADMIN">Admin</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-2 flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setShowInvite(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleInvite}
+              disabled={!selectedUserId || submitting}
+            >
+              {submitting ? "Inviting..." : "Invite"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function CommunityTab({ team }: { team: Team }) {
+  const { fetchTeamCommunity } = useBounty();
+  const [community, setCommunity] = useState<TeamFavorite[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchTeamCommunity(team.id)
+      .then(setCommunity)
+      .finally(() => setLoading(false));
+  }, [team.id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-muted-foreground">
+          {community.length} {community.length === 1 ? "member" : "members"}
+        </h2>
+      </div>
+
+      {community.length === 0 ? (
+        <p className="rounded-xl border border-dashed px-4 py-10 text-center text-sm text-muted-foreground bg-muted/20">
+          No one has joined {team.name}'s community yet. Favoriting this team
+          adds someone here — and lets them see the team's private bounties.
+        </p>
+      ) : (
+        <div className="divide-y rounded-xl border bg-card">
+          {community.map((fav) => (
+            <div
+              key={fav.id}
+              className="flex items-center justify-between gap-4 px-4 py-3"
+            >
+              <div className="flex items-center gap-3">
+                <Avatar className="h-9 w-9 border">
+                  <AvatarImage src={fav.user?.avatar || undefined} />
+                  <AvatarFallback className="text-xs">
+                    {initials(displayName(fav.user))}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="text-sm font-medium">
+                    {displayName(fav.user)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {fav.user?.email}
+                  </div>
+                </div>
+              </div>
+              <span className="text-[11px] text-muted-foreground">
+                Joined {format(new Date(fav.createdAt), "MMM d, yyyy")}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TeamWalletModal({
+  open,
+  onOpenChange,
+  team,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  team: Team;
+}) {
+  const { createTeamWallet, importTeamWallet, deleteTeamWallet } = useBounty();
+  const [tab, setTab] = useState<"new" | "import">("new");
+  const [accountName, setAccountName] = useState("");
+  const [chain, setChain] = useState("mainnet");
+  const [serverUrl, setServerUrl] = useState("https://zec.rocks:443");
+  const [seedPhrase, setSeedPhrase] = useState("");
+  const [birthdayHeight, setBirthdayHeight] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showSeed, setShowSeed] = useState(false);
+  const [confirmReplace, setConfirmReplace] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setTab("new");
+      setAccountName("");
+      setChain("mainnet");
+      setServerUrl("https://zec.rocks:443");
+      setSeedPhrase("");
+      setBirthdayHeight("");
+      setShowSeed(false);
+      setConfirmReplace(false);
+      setError(null);
+    }
+  }, [open]);
+
+  const doSubmit = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Backend 409s creating/importing a wallet when one already exists —
+      // remove the current one first if we're replacing.
+      if (team.wallet) {
+        await deleteTeamWallet(team.id);
+      }
+
+      if (tab === "import") {
+        await importTeamWallet(team.id, {
+          accountName: accountName.trim(),
+          seedPhrase: seedPhrase.trim(),
+          chain,
+          serverUrl,
+          ...(birthdayHeight && { birthdayHeight: parseInt(birthdayHeight) }),
+        });
+      } else {
+        await createTeamWallet(team.id, {
+          accountName: accountName.trim(),
+          chain,
+          serverUrl,
+        });
+      }
+
+      onOpenChange(false);
+    } catch (err: any) {
+      // If we already deleted the old wallet but creation/import failed,
+      // the team is now walletless — say so plainly.
+      setError(
+        team.wallet
+          ? `${err.message}. The previous wallet was removed — try again.`
+          : err.message,
+      );
+    } finally {
+      setLoading(false);
+      setConfirmReplace(false);
+    }
+  };
+
+  const handleSubmit = () => {
+    setError(null);
+    if (!accountName.trim()) return setError("Account name is required");
+
+    if (tab === "import") {
+      const words = seedPhrase.trim().split(/\s+/).filter(Boolean);
+      if (words.length !== 24) return setError("Seed phrase must be 24 words");
+    }
+
+    if (team.wallet && !confirmReplace) {
+      setConfirmReplace(true);
+      return;
+    }
+
+    doSubmit();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-lg rounded-xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            {team.wallet ? "Replace" : "Add"} Team Wallet for {team.name}
+          </DialogTitle>
+        </DialogHeader>
+
+        {team.wallet && confirmReplace ? (
+          <div className="space-y-4 py-2">
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <AlertTriangle className="h-4 w-4 text-destructive shrink-0 mt-0.5" />
+              <p className="text-sm text-destructive">
+                This will permanently delete the current wallet (
+                <strong>{team.wallet.accountName}</strong>) and its transaction
+                data, then {tab === "import" ? "import" : "create"} the new one.
+                This can't be undone.
+              </p>
+            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+            <div className="flex gap-1 p-1 bg-muted rounded-lg">
+              {(["new", "import"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    tab === t
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {t === "new" ? "New Wallet" : "Import Seed"}
+                </button>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label>Account Name *</Label>
+                <Input
+                  placeholder="e.g. Team Main"
+                  value={accountName}
+                  onChange={(e) => setAccountName(e.target.value)}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Chain</Label>
+                  <Select
+                    value={chain}
+                    onValueChange={(v) => {
+                      setChain(v);
+                      setServerUrl(
+                        v === "mainnet"
+                          ? "https://zec.rocks:443"
+                          : "https://testnet.zec.rocks:443",
+                      );
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="mainnet">Mainnet</SelectItem>
+                      <SelectItem value="testnet">Testnet</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Server URL</Label>
+                  <Input
+                    value={serverUrl}
+                    onChange={(e) => setServerUrl(e.target.value)}
+                    placeholder="https://zec.rocks:443"
+                  />
+                </div>
+              </div>
+
+              {tab === "import" && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label>Seed Phrase (24 words) *</Label>
+                    <div className="relative">
+                      {!showSeed && seedPhrase && (
+                        <div className="absolute inset-0 z-10 flex items-center px-3 py-2 pointer-events-none">
+                          <span className="text-sm tracking-[0.3em] text-foreground select-none break-all leading-relaxed">
+                            {"•".repeat(
+                              seedPhrase.trim().split(/\s+/).filter(Boolean)
+                                .length * 4,
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      <Textarea
+                        rows={3}
+                        placeholder={
+                          showSeed ? "Enter your 24-word seed phrase..." : ""
+                        }
+                        value={seedPhrase}
+                        onChange={(e) => setSeedPhrase(e.target.value)}
+                        className={`font-mono text-sm resize-none pr-10 ${
+                          !showSeed && seedPhrase
+                            ? "text-transparent caret-foreground"
+                            : ""
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowSeed((v) => !v)}
+                        className="absolute top-2 right-2 p-1 rounded text-muted-foreground hover:text-foreground transition-colors z-20"
+                      >
+                        {showSeed ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground">
+                      Your seed phrase is never stored.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Birthday Height (optional)</Label>
+                    <Input
+                      type="number"
+                      placeholder="e.g. 1500000"
+                      value={birthdayHeight}
+                      onChange={(e) => setBirthdayHeight(e.target.value)}
+                    />
+                  </div>
+                </>
+              )}
+              {error && <p className="text-xs text-destructive">{error}</p>}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-2 flex justify-end gap-2">
+          <Button
+            variant="outline"
+            onClick={() =>
+              confirmReplace ? setConfirmReplace(false) : onOpenChange(false)
+            }
+            disabled={loading}
+          >
+            {confirmReplace ? "Back" : "Cancel"}
+          </Button>
+          <Button
+            variant={confirmReplace ? "destructive" : "default"}
+            onClick={handleSubmit}
+            disabled={loading}
+          >
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {confirmReplace
+              ? "Delete & Replace"
+              : tab === "import"
+                ? "Import Wallet"
+                : "Create Wallet"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TeamSyncStatusBadge({ status }: { status: SyncStatus | null }) {
+  if (!status) return null;
+  const pct =
+    status.percentage_total_blocks_scanned ||
+    status.percentage_total_outputs_scanned;
+  const done = pct === 100 || status.in_progress === false;
+  return (
+    <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/60 border text-xs font-mono">
+      {done ? (
+        <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+      ) : (
+        <Activity className="h-3 w-3 text-amber-400 animate-pulse shrink-0" />
+      )}
+      <span className="text-muted-foreground">Sync</span>
+      <span className={done ? "text-emerald-500" : "text-amber-400"}>
+        {pct != null
+          ? `${Number(pct).toFixed(2)}%`
+          : status.in_progress
+            ? "…"
+            : "—"}
+      </span>
+      {status.synced_blocks != null && status.total_blocks != null && (
+        <span className="text-muted-foreground/60">
+          ({status.synced_blocks}/{status.total_blocks})
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TreasuryTab({
+  team,
+  teamBounties,
+  canManage,
+}: {
+  team: Team;
+  teamBounties: Bounty[];
+  canManage: boolean;
+}) {
+  const {
+    fetchTeamWalletBalance,
+    deleteTeamWallet,
+    fetchTeamTransactionHashes,
+    teamPaymentIDs,
+    teamPaymentChain,
+    teamPaymentServerUrl,
+    teamPaymentRecords,
+    fetchTeamPaymentRecords,
+    rescanTeamWallet,
+    teamRescanLoading,
+    teamRescanStatus,
+    teamSyncStatus,
+    teamSyncStatusLoading,
+    teamSyncStatusError,
+    fetchTeamSyncStatus,
+  } = useBounty();
+  const [balance, setBalance] = useState<any>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [deletingWallet, setDeletingWallet] = useState(false);
+  const [isFetchingTxHashes, setIsFetchingTxHashes] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [txSubTab, setTxSubTab] = useState<"payouts" | "wallet">("wallet");
+
+  const syncStatus = teamSyncStatus[team.id] ?? null;
+
+  const loadBalance = () => {
+    if (!team.wallet) return;
+    setBalanceLoading(true);
+    fetchTeamWalletBalance(team.id)
+      .then(setBalance)
+      .finally(() => setBalanceLoading(false));
+  };
+
+  useEffect(() => {
+    loadBalance();
+  }, [team.id, team.wallet]);
+
+  // Auto-load transaction history + payment records as soon as the Treasury
+  // tab is viewed with a wallet present — no more waiting on a manual click.
+  useEffect(() => {
+    if (!team.wallet) return;
+    fetchTeamTransactionHashes(team.id);
+    fetchTeamPaymentRecords(team.id);
+  }, [team.id, team.wallet]);
+
+  const handleFetchTransactions = async () => {
+    setIsFetchingTxHashes(true);
+    try {
+      await fetchTeamTransactionHashes(team.id);
+    } catch (error) {
+      console.error("Failed to fetch team transaction hashes:", error);
+    } finally {
+      setIsFetchingTxHashes(false);
+    }
+  };
+
+  const handleRescan = async () => {
+    await rescanTeamWallet(team.id);
+  };
+
+  const handleSyncStatus = async () => {
+    setIsSyncing(true);
+    try {
+      await fetchTeamSyncStatus(team.id);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleDeleteWallet = async () => {
+    if (
+      !confirm(
+        `Remove the wallet for ${team.name}? This permanently deletes its data and can't be undone.`,
+      )
+    )
+      return;
+    setDeletingWallet(true);
+    try {
+      await deleteTeamWallet(team.id);
+      setBalance(null);
+    } finally {
+      setDeletingWallet(false);
+    }
+  };
+
+  if (!team.wallet) {
+    return (
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed bg-muted/20 px-8 py-14 text-center">
+        <span className="text-sm font-medium text-muted-foreground">
+          No wallet set up
+        </span>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Set up a shared wallet so bounty payouts for this team can be
+          authorized on completion.
+        </p>
+        {canManage && (
+          <Button className="mt-1" onClick={() => setWalletModalOpen(true)}>
+            Set up wallet
+          </Button>
+        )}
+
+        <TeamWalletModal
+          open={walletModalOpen}
+          onOpenChange={setWalletModalOpen}
+          team={team}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {canManage && (
+        <TeamAuthorizePaymentPanel team={team} teamBounties={teamBounties} />
+      )}
+      <div className="rounded-xl border bg-card p-6">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div className="text-xs text-muted-foreground">Account</div>
+            <div className="mt-1 text-sm font-medium">
+              {team.wallet.accountName}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant="outline" className="text-[11px]">
+              {team.wallet.chain}
+            </Badge>
+
+            {syncStatus || teamSyncStatusError ? (
+              teamSyncStatusError ? (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/60 border text-xs font-mono text-destructive">
+                  <AlertCircle className="h-3 w-3 shrink-0" />
+                  <span>Error</span>
+                </div>
+              ) : (
+                <TeamSyncStatusBadge status={syncStatus} />
+              )
+            ) : null}
+
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={handleSyncStatus}
+              disabled={isSyncing}
+              title="Refresh sync status"
+            >
+              {isSyncing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Activity className="h-3.5 w-3.5" />
+              )}
+            </Button>
+
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7"
+              onClick={loadBalance}
+              disabled={balanceLoading}
+              title="Refresh balance"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${balanceLoading ? "animate-spin" : ""}`}
+              />
+            </Button>
+            {canManage && (
+              <>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7"
+                  onClick={handleRescan}
+                  disabled={teamRescanLoading}
+                  title="Rescan wallet"
+                >
+                  {teamRescanLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <FolderSync className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs"
+                  onClick={() => setWalletModalOpen(true)}
+                >
+                  Replace
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-xs text-red-500 border-red-500/30 hover:bg-red-500/10 hover:text-red-600"
+                  onClick={handleDeleteWallet}
+                  disabled={deletingWallet}
+                >
+                  {deletingWallet ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    "Remove"
+                  )}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 text-3xl font-bold text-primary">
+          {balanceLoading ? "…" : balance ? fmt(confirmedTotal(balance)) : "—"}
+        </div>
+        {teamRescanStatus && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {teamRescanStatus}
+          </p>
+        )}
+      </div>
+
+      <div>
+        <div className="mb-3 flex items-center gap-1 rounded-lg border bg-muted/40 p-1 w-fit">
+          <button
+            onClick={() => setTxSubTab("wallet")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+              txSubTab === "wallet"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground"
+            }`}
+          >
+            Wallet history ({teamPaymentIDs?.length || 0})
+          </button>
+          <button
+            onClick={() => setTxSubTab("payouts")}
+            className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+              txSubTab === "payouts"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground"
+            }`}
+          >
+            Bounty payouts ({teamPaymentRecords.length})
+          </button>
+        </div>
+
+        {txSubTab === "wallet" ? (
+          teamPaymentIDs && teamPaymentIDs.length > 0 ? (
+            <PaymentTxIdsTable
+              paymentIDs={teamPaymentIDs}
+              chain={teamPaymentChain}
+              serverUrl={teamPaymentServerUrl}
+            />
+          ) : (
+            <div className="rounded-xl border border-dashed bg-muted/20 py-12 text-center">
+              <RefreshCw className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">
+                No transactions found for this wallet yet.
+              </p>
+            </div>
+          )
+        ) : teamPaymentRecords.length > 0 ? (
+          <PaymentRecordsTable records={teamPaymentRecords} />
+        ) : (
+          <div className="rounded-xl border border-dashed bg-muted/20 py-12 text-center text-sm text-muted-foreground">
+            No payout records yet.
+          </div>
+        )}
+      </div>
+
+      <TeamWalletModal
+        open={walletModalOpen}
+        onOpenChange={setWalletModalOpen}
+        team={team}
+      />
+    </div>
+  );
+}
+
+function SettingsTab({
+  team,
+  currentUserId,
+  canManage,
+  isOwner,
+}: {
+  team: Team;
+  currentUserId: string;
+  canManage: boolean;
+  isOwner: boolean;
+}) {
+  const {
+    updateTeam,
+    deleteTeam,
+    removeTeamMember,
+    uploadTeamLogo,
+    removeTeamLogo,
+  } = useBounty();
+  const router = useRouter();
+  const [name, setName] = useState(team.name);
+  const [description, setDescription] = useState(team.description || "");
+  const [isPrivate, setIsPrivate] = useState(team.isPrivate);
+  const [saving, setSaving] = useState(false);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  type SaveState = "idle" | "saving" | "success" | "error";
+
+  // ── Twitter link ──────────────────────────────────────────────────────
+  const [twitterUrl, setTwitterUrl] = useState(team.twitterUrl || "");
+  const [twitterSaveState, setTwitterSaveState] = useState<SaveState>("idle");
+  const [twitterError, setTwitterError] = useState<string | null>(null);
+  const twitterDirty = twitterUrl !== (team.twitterUrl || "");
+  const isValidTwitter =
+    !twitterUrl.trim() || /^https?:\/\/.+/.test(twitterUrl.trim());
+
+  const handleSaveTwitter = async () => {
+    if (!isValidTwitter) return;
+    setTwitterSaveState("saving");
+    setTwitterError(null);
+    try {
+      await updateTeam(team.id, { twitterUrl: twitterUrl.trim() });
+      setTwitterSaveState("success");
+      setTimeout(() => setTwitterSaveState("idle"), 3000);
+    } catch (err: any) {
+      setTwitterSaveState("error");
+      setTwitterError(err.message ?? "Failed to save link");
+    }
+  };
+
+  // ── Discord link ──────────────────────────────────────────────────────
+  const [discordUrl, setDiscordUrl] = useState(team.discordUrl || "");
+  const [discordSaveState, setDiscordSaveState] = useState<SaveState>("idle");
+  const [discordError, setDiscordError] = useState<string | null>(null);
+  const discordDirty = discordUrl !== (team.discordUrl || "");
+  const isValidDiscord =
+    !discordUrl.trim() || /^https?:\/\/.+/.test(discordUrl.trim());
+
+  const handleSaveDiscord = async () => {
+    if (!isValidDiscord) return;
+    setDiscordSaveState("saving");
+    setDiscordError(null);
+    try {
+      await updateTeam(team.id, { discordUrl: discordUrl.trim() });
+      setDiscordSaveState("success");
+      setTimeout(() => setDiscordSaveState("idle"), 3000);
+    } catch (err: any) {
+      setDiscordSaveState("error");
+      setDiscordError(err.message ?? "Failed to save link");
+    }
+  };
+
+  // ── Additional links ─────────────────────────────────────────────────
+  const [additionalLinks, setAdditionalLinks] = useState<string[]>(
+    team.additionalLinks?.length ? team.additionalLinks : [""],
+  );
+  const [linksSaveState, setLinksSaveState] = useState<SaveState>("idle");
+  const [linksError, setLinksError] = useState<string | null>(null);
+
+  const savedLinks = team.additionalLinks?.length ? team.additionalLinks : [""];
+  const linksDirty =
+    JSON.stringify(additionalLinks.map((l) => l.trim()).filter(Boolean)) !==
+    JSON.stringify(savedLinks.map((l) => l.trim()).filter(Boolean));
+  const linksAllValid = additionalLinks.every(
+    (l) => !l.trim() || /^https?:\/\/.+/.test(l.trim()),
+  );
+  const filledLinksCount = additionalLinks
+    .map((l) => l.trim())
+    .filter(Boolean).length;
+
+  const handleAdditionalLinkChange = (index: number, value: string) => {
+    setAdditionalLinks((prev) => prev.map((l, i) => (i === index ? value : l)));
+    setLinksSaveState("idle");
+    setLinksError(null);
+  };
+
+  const handleAddLinkField = () => {
+    if (additionalLinks.length >= 10) return;
+    setAdditionalLinks((prev) => [...prev, ""]);
+  };
+
+  const handleRemoveLinkField = (index: number) => {
+    setAdditionalLinks((prev) =>
+      prev.length === 1 ? [""] : prev.filter((_, i) => i !== index),
+    );
+    setLinksSaveState("idle");
+  };
+
+  const handleSaveAdditionalLinks = async () => {
+    if (!linksAllValid) return;
+    setLinksSaveState("saving");
+    setLinksError(null);
+    try {
+      const cleaned = additionalLinks.map((l) => l.trim()).filter(Boolean);
+      await updateTeam(team.id, { additionalLinks: cleaned });
+      setAdditionalLinks(cleaned.length ? cleaned : [""]);
+      setLinksSaveState("success");
+      setTimeout(() => setLinksSaveState("idle"), 3000);
+    } catch (err: any) {
+      setLinksSaveState("error");
+      setLinksError(err.message ?? "Failed to save links");
+    }
+  };
+
+  const handleLogoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoUploading(true);
+    try {
+      await uploadTeamLogo(team.id, file);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLogoUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleLogoRemove = async () => {
+    setLogoUploading(true);
+    try {
+      await removeTeamLogo(team.id);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLogoUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updateTeam(team.id, { name, description, isPrivate });
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDangerAction = async () => {
+    if (isOwner) {
+      if (!confirm(`Delete ${team.name}? This can't be undone.`)) return;
+      await deleteTeam(team.id);
+      router.push("/teams");
+    } else {
+      if (!confirm(`Leave ${team.name}?`)) return;
+      await removeTeamMember(team.id, currentUserId);
+      router.push("/teams");
+    }
+  };
+
+  // Small helper for the inline status row under a link field
+  const LinkStatus = ({
+    error,
+    saved,
+  }: {
+    error: string | null;
+    saved: boolean;
+  }) =>
+    error ? (
+      <p className="text-xs text-destructive flex items-center gap-1">
+        <XCircle className="h-3.5 w-3.5" />
+        {error}
+      </p>
+    ) : saved ? (
+      <p className="text-xs text-green-600 dark:text-green-400 flex items-center gap-1">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Link saved
+      </p>
+    ) : null;
+
+  return (
+    <div className="max-w-2xl space-y-6 m-auto">
+      <div>
+        <h2 className="text-base font-semibold">Team settings</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Manage how {team.name} appears and who can act on its behalf.
+        </p>
+      </div>
+
+      {/* ── Identity ── */}
+      <section className="rounded-xl border bg-card p-5 space-y-5">
+        <h3 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+          Identity
+        </h3>
+
+        {canManage && (
+          <div className="flex items-center gap-4">
+            <Avatar className="h-16 w-16 border rounded-lg">
+              {team.logo && (
+                <AvatarImage
+                  src={team.logo}
+                  alt={`${team.name} logo`}
+                  className="object-cover"
+                />
+              )}
+              <AvatarFallback className="rounded-lg text-lg font-semibold">
+                {initials(team.name)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1">
+              <div className="flex gap-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  onChange={handleLogoSelect}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={logoUploading}
+                >
+                  {logoUploading
+                    ? "Uploading..."
+                    : team.logo
+                      ? "Replace logo"
+                      : "Upload logo"}
+                </Button>
+                {team.logo && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLogoRemove}
+                    disabled={logoUploading}
+                    className="text-red-500 border-red-500/30 hover:bg-red-500/10 hover:text-red-600"
+                  >
+                    <FaXTwitter className="mr-1 h-3.5 w-3.5" /> Remove
+                  </Button>
+                )}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                PNG, JPEG, WEBP, or SVG. Max 5MB.
+              </p>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <Label className="mb-1.5 block text-xs text-muted-foreground">
+            Team name
+          </Label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={!canManage}
+            className="h-10 w-full rounded-md border bg-background px-3 text-sm outline-none focus:border-primary disabled:opacity-50"
+          />
+        </div>
+        <div>
+          <Label className="mb-1.5 block text-xs text-muted-foreground">
+            Description
+          </Label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={!canManage}
+            rows={3}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:border-primary disabled:opacity-50"
+          />
+        </div>
+
+        {canManage ? (
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving}>
+              {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+              {saving ? "Saving..." : "Save changes"}
+            </Button>
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Only owners and admins can edit team settings.
+          </p>
+        )}
+      </section>
+
+      {/* ── Social links ── */}
+      {canManage && (
+        <section className="rounded-xl border bg-card p-5 space-y-5">
+          <h3 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+            Social links
+          </h3>
+
+          {/* X / Twitter */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-foreground/5">
+                <FaXTwitter className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">X (Twitter)</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Shown on the team's public profile.
+                </p>
+              </div>
+            </div>
+            <Input
+              value={twitterUrl}
+              onChange={(e) => {
+                setTwitterUrl(e.target.value);
+                setTwitterSaveState("idle");
+                setTwitterError(null);
+              }}
+              placeholder="https://x.com/yourteam"
+              className={
+                twitterSaveState === "success"
+                  ? "border-green-500 focus-visible:ring-green-500"
+                  : twitterSaveState === "error" ||
+                      (twitterUrl && !isValidTwitter)
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+              }
+            />
+            {twitterUrl && !isValidTwitter && (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <XCircle className="h-3.5 w-3.5" />
+                Must be a valid URL starting with http(s)://
+              </p>
+            )}
+            <LinkStatus
+              error={twitterError}
+              saved={twitterSaveState === "success"}
+            />
+            {twitterDirty && (
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setTwitterUrl(team.twitterUrl || "");
+                    setTwitterSaveState("idle");
+                    setTwitterError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={twitterSaveState === "saving" || !isValidTwitter}
+                  onClick={handleSaveTwitter}
+                >
+                  {twitterSaveState === "saving" && (
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  )}
+                  Save
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t" />
+
+          {/* Discord */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[#5865F2]/30 bg-[#5865F2]/10 text-[#5865F2]">
+                <RxDiscordLogo className="h-4 w-4" />
+              </div>
+              <div>
+                <Label className="text-sm font-medium">Discord</Label>
+                <p className="text-[11px] text-muted-foreground">
+                  Invite link shown on the team's public profile.
+                </p>
+              </div>
+            </div>
+            <Input
+              value={discordUrl}
+              onChange={(e) => {
+                setDiscordUrl(e.target.value);
+                setDiscordSaveState("idle");
+                setDiscordError(null);
+              }}
+              placeholder="https://discord.gg/yourteam"
+              className={
+                discordSaveState === "success"
+                  ? "border-green-500 focus-visible:ring-green-500"
+                  : discordSaveState === "error" ||
+                      (discordUrl && !isValidDiscord)
+                    ? "border-destructive focus-visible:ring-destructive"
+                    : ""
+              }
+            />
+            {discordUrl && !isValidDiscord && (
+              <p className="text-xs text-destructive flex items-center gap-1">
+                <XCircle className="h-3.5 w-3.5" />
+                Must be a valid URL starting with http(s)://
+              </p>
+            )}
+            <LinkStatus
+              error={discordError}
+              saved={discordSaveState === "success"}
+            />
+            {discordDirty && (
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDiscordUrl(team.discordUrl || "");
+                    setDiscordSaveState("idle");
+                    setDiscordError(null);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={discordSaveState === "saving" || !isValidDiscord}
+                  onClick={handleSaveDiscord}
+                >
+                  {discordSaveState === "saving" && (
+                    <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                  )}
+                  Save
+                </Button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* ── Additional links ── */}
+      {canManage && (
+        <section className="rounded-xl border bg-card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Additional links
+              </h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                Website, GitHub, or anything else.
+              </p>
+            </div>
+            <span className="text-[11px] text-muted-foreground tabular-nums">
+              {filledLinksCount}/10
+            </span>
+          </div>
+
+          <div className="space-y-2">
+            {additionalLinks.map((link, i) => (
+              <div key={i} className="flex gap-2">
+                <Input
+                  value={link}
+                  onChange={(e) =>
+                    handleAdditionalLinkChange(i, e.target.value)
+                  }
+                  placeholder="https://example.com"
+                  className={
+                    link && !/^https?:\/\/.+/.test(link.trim())
+                      ? "border-destructive focus-visible:ring-destructive"
+                      : ""
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => handleRemoveLinkField(i)}
+                >
+                  <XIcon className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          {additionalLinks.length < 10 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleAddLinkField}
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" /> Add link
+            </Button>
+          )}
+
+          {!linksAllValid && (
+            <p className="text-xs text-destructive flex items-center gap-1">
+              <XCircle className="h-3.5 w-3.5" />
+              Each link must be a valid URL starting with http(s)://
+            </p>
+          )}
+          <LinkStatus error={linksError} saved={linksSaveState === "success"} />
+          {linksDirty && (
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setAdditionalLinks(savedLinks);
+                  setLinksSaveState("idle");
+                  setLinksError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={linksSaveState === "saving" || !linksAllValid}
+                onClick={handleSaveAdditionalLinks}
+              >
+                {linksSaveState === "saving" && (
+                  <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
+                )}
+                Save
+              </Button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* ── Visibility ── */}
+      <section className="rounded-xl border bg-card p-5">
+        <div className="flex items-center justify-between gap-4">
+          <div className="pr-4">
+            <Label className="text-sm">Private team</Label>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              When private, only {team.name}'s community (members and
+              favoriters) can see and apply to its bounties. Flipping this
+              updates every existing bounty under this team.
+            </p>
+          </div>
+          <Switch
+            checked={isPrivate}
+            onCheckedChange={setIsPrivate}
+            disabled={!canManage}
+          />
+        </div>
+      </section>
+
+      {/* ── Danger zone ── */}
+      <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-widest text-destructive">
+          Danger zone
+        </h3>
+        <p className="mb-3 text-xs text-muted-foreground">
+          {isOwner
+            ? `Permanently delete ${team.name} and all of its data.`
+            : `Leave ${team.name}. You can be re-invited later.`}
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleDangerAction}
+          className="text-red-500 border-red-500/30 hover:bg-red-500/10 hover:text-red-600"
+        >
+          {isOwner ? "Delete team" : "Leave team"}
+        </Button>
+      </section>
+    </div>
+  );
+}

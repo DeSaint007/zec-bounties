@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ProfileLink } from "@/components/profile-link";
 import type { Bounty, BountyStatus, WorkSubmission } from "@/lib/types";
 import { useBounty } from "@/lib/bounty-context";
 import {
@@ -109,7 +110,6 @@ export function BountyAdminCard({
   const {
     updateBountyStatus,
     approveBounty,
-    authorizePayment,
     editBounty,
     users,
     getAllApplicationsForBounty,
@@ -193,15 +193,6 @@ export function BountyAdminCard({
     }
   };
 
-  const handlePaymentAuthorization = async () => {
-    setIsUpdating(true);
-    try {
-      authorizePayment(bounty.id);
-    } finally {
-      setIsUpdating(false);
-    }
-  };
-
   const handleEditBounty = () => {
     editBounty(bounty.id, {
       title: editForm.title,
@@ -275,9 +266,11 @@ export function BountyAdminCard({
             fallbackChar={bounty.createdByUser?.name?.charAt(0) || "?"}
           />
           <div>
-            <p className="text-xs text-muted-foreground font-medium">
-              {bounty.createdByUser?.name}
-            </p>
+            <ProfileLink user={bounty.createdByUser}>
+              <p className="text-xs text-muted-foreground font-medium">
+                {bounty.createdByUser?.name}
+              </p>
+            </ProfileLink>
             <h3 className="font-semibold line-clamp-1 leading-tight group-hover:text-primary transition-colors">
               {bounty.title}
             </h3>
@@ -419,9 +412,11 @@ export function BountyAdminCard({
             fallbackChar={bounty.createdByUser?.name?.charAt(0) || "?"}
           />
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground font-medium">
-              {bounty.createdByUser?.name}
-            </p>
+            <ProfileLink user={bounty.createdByUser}>
+              <p className="text-xs text-muted-foreground font-medium">
+                {bounty.createdByUser?.name}
+              </p>
+            </ProfileLink>
             <h3 className="font-semibold line-clamp-1 leading-tight group-hover:text-primary transition-colors">
               {bounty.title}
             </h3>
@@ -686,6 +681,7 @@ export function BountyAdminCard({
                     <Input
                       id="edit-due"
                       type="date"
+                      min={new Date().toISOString().split("T")[0]}
                       value={editForm.timeToComplete}
                       onChange={(e) =>
                         setEditForm((prev) => ({
@@ -709,7 +705,7 @@ export function BountyAdminCard({
                       <SelectContent>
                         <SelectItem value="none">No Assignee</SelectItem>
                         {users
-                          .filter((u) => u.role === "CLIENT")
+                          .filter((u) => u.role === "HUNTER")
                           .map((user) => (
                             <SelectItem key={user.id} value={user.id}>
                               {user.name}
@@ -1100,9 +1096,11 @@ export function BountyAdminCard({
                     fallbackChar={bounty.createdByUser?.name?.charAt(0) || "?"}
                   />
                   <div>
-                    <p className="text-sm font-semibold">
-                      {bounty.createdByUser?.name || "Unknown"}
-                    </p>
+                    <ProfileLink user={bounty.createdByUser}>
+                      <p className="text-sm font-semibold">
+                        {bounty.createdByUser?.name || "Unknown"}
+                      </p>
+                    </ProfileLink>
                   </div>
                 </div>
               </div>
@@ -1120,9 +1118,11 @@ export function BountyAdminCard({
                       fallbackChar={bounty.assigneeUser?.name?.charAt(0) || "?"}
                     />
                     <div>
-                      <p className="text-sm font-bold text-primary">
-                        {bounty.assigneeUser?.name || "Unknown"}
-                      </p>
+                      <ProfileLink user={bounty.assigneeUser}>
+                        <p className="text-sm font-bold text-primary">
+                          {bounty.assigneeUser?.name || "Unknown"}
+                        </p>
+                      </ProfileLink>
                     </div>
                   </div>
                 </div>
@@ -1381,6 +1381,7 @@ export function BountyAdminCard({
                           <Input
                             id="edit-due"
                             type="date"
+                            min={new Date().toISOString().split("T")[0]}
                             value={editForm.timeToComplete}
                             onChange={(e) =>
                               setEditForm((prev) => ({
@@ -1407,7 +1408,7 @@ export function BountyAdminCard({
                             <SelectContent>
                               <SelectItem value="none">No Assignee</SelectItem>
                               {users
-                                .filter((u) => u.role === "CLIENT")
+                                .filter((u) => u.role === "HUNTER")
                                 .map((user) => (
                                   <SelectItem key={user.id} value={user.id}>
                                     {user.name}
@@ -1509,10 +1510,27 @@ export function BountyAdminCard({
                       <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
                       <div>
                         <div className="font-semibold text-green-800 dark:text-green-200">
-                          Payment Authorized
+                          {bounty.isPaid
+                            ? "Payment Sent"
+                            : "Payment Authorized"}
                         </div>
-                        <div className="text-sm text-green-600 dark:text-green-400">
-                          {bounty.bountyAmount} ZEC payment has been authorized
+                        <div className="text-sm text-green-600 dark:text-green-400 font-mono">
+                          {bounty.paymentTxId
+                            ? `${bounty.bountyAmount} ZEC — tx ${bounty.paymentTxId.slice(0, 16)}…`
+                            : `${bounty.bountyAmount} ZEC`}
+                        </div>
+                      </div>
+                    </div>
+                  ) : bounty.paymentInFlight ? (
+                    <div className="flex items-center gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                      <Clock className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                      <div>
+                        <div className="font-semibold text-amber-800 dark:text-amber-200">
+                          Payment Settling
+                        </div>
+                        <div className="text-sm text-amber-600 dark:text-amber-400">
+                          A send is in flight or awaiting manual resolution —
+                          locked against retry
                         </div>
                       </div>
                     </div>

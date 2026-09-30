@@ -27,6 +27,8 @@ import { useBounty } from "@/lib/bounty-context";
 import type { BountyFormData } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { toDateInputValue, parseDateInputValue } from "@/lib/utils";
+import { RewardAmountHint } from "@/components/reward-amount-hint";
 
 interface CreateBountyFormProps {
   onSuccess?: () => void;
@@ -60,40 +62,34 @@ export function AdminBountyModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedAssignee, setSelectedAssignee] = useState("unassigned");
   const hunters = DUMMY_USERS.filter((u) => u.type === "hunter");
-
   const availableUsers = nonAdminUsers;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     if (!formData.title.trim()) {
       toast.error("Title is required", {
         description: "Please enter a title for the bounty.",
       });
       return;
     }
-
     if (!formData.category) {
       toast.error("Category is required", {
         description: "Please select a category.",
       });
       return;
     }
-
     if (!formData.bountyAmount || formData.bountyAmount <= 0) {
       toast.error("Invalid reward amount", {
         description: "Please enter a reward amount greater than 0.",
       });
       return;
     }
-
     if (!formData.description.trim()) {
       toast.error("Description is required", {
         description: "Please describe the bounty requirements.",
       });
       return;
     }
-
     setIsSubmitting(true);
     try {
       await createBounty(formData);
@@ -122,21 +118,30 @@ export function AdminBountyModal({
   const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData((prev) => ({
       ...prev,
-      timeToComplete: new Date(e.target.value),
+      timeToComplete: parseDateInputValue(e.target.value),
     }));
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
+      {/*
+        - max-w-[calc(100%-2rem)] keeps a side margin on small screens.
+          (We deliberately avoid `sm:` here because your `sm` is 300px,
+          which would override that margin on nearly every phone.)
+        - md:max-w-[600px] applies the desktop width from 768px up.
+        - max-h-[90dvh] + flex-col + overflow-hidden => only the body scrolls.
+      */}
+      <DialogContent className="flex flex-col gap-0 overflow-hidden p-0 max-h-[90dvh] w-full max-w-[calc(100%-2rem)] md:max-w-[600px]">
+        <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
+          <DialogHeader className="px-4 pt-6 pb-2 text-left sam:px-6">
             <DialogTitle>Create & Assign Bounty</DialogTitle>
             <DialogDescription>
               Create a new bounty and assign it directly to a hunter.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
+
+          {/* Scrollable body */}
+          <div className="grid min-h-0 flex-1 gap-4 overflow-y-auto px-4 py-4 sam:px-6">
             <div className="grid gap-2">
               <Label htmlFor="admin-title">Bounty Title</Label>
               <Input
@@ -150,8 +155,10 @@ export function AdminBountyModal({
                 required
               />
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="grid gap-2">
+
+            {/* Stacks on narrow screens, 3 columns from `imd` (725px) up */}
+            <div className="grid grid-cols-1 gap-4 imd:grid-cols-3">
+              <div className="grid min-w-0 gap-2">
                 <Label htmlFor="admin-category">Category</Label>
                 <Select
                   value={formData.category}
@@ -160,8 +167,8 @@ export function AdminBountyModal({
                   }
                   required
                 >
-                  <SelectTrigger id="admin-category">
-                    <SelectValue placeholder="Select" />
+                  <SelectTrigger id="admin-category" className="w-full min-w-0">
+                    <SelectValue placeholder="Select" className="truncate" />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((category) => (
@@ -172,11 +179,14 @@ export function AdminBountyModal({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
+              <div className="grid min-w-0 gap-2">
                 <Label htmlFor="admin-difficulty">Difficulty</Label>
                 <Select required>
-                  <SelectTrigger id="admin-difficulty">
-                    <SelectValue placeholder="Select" />
+                  <SelectTrigger
+                    id="admin-difficulty"
+                    className="w-full min-w-0"
+                  >
+                    <SelectValue placeholder="Select" className="truncate" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="Easy">Easy</SelectItem>
@@ -185,7 +195,7 @@ export function AdminBountyModal({
                   </SelectContent>
                 </Select>
               </div>
-              <div className="grid gap-2">
+              <div className="grid min-w-0 gap-2">
                 <Label htmlFor="admin-chain">Network</Label>
                 <Select
                   required
@@ -197,8 +207,8 @@ export function AdminBountyModal({
                     }))
                   }
                 >
-                  <SelectTrigger id="admin-chain">
-                    <SelectValue placeholder="Select" />
+                  <SelectTrigger id="admin-chain" className="w-full min-w-0">
+                    <SelectValue placeholder="Select" className="truncate" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="TEST">Testnet</SelectItem>
@@ -208,9 +218,13 @@ export function AdminBountyModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="admin-reward">Reward (ZEC)</Label>
+            {/* Stacks below `sam` (365px), 2 columns above */}
+            <div className="grid grid-cols-1 gap-4 sam:grid-cols-2">
+              <div className="grid min-w-0 gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Label htmlFor="admin-reward">Reward (ZEC)</Label>
+                  <RewardAmountHint />
+                </div>
                 <Input
                   id="admin-reward"
                   type="number"
@@ -225,26 +239,22 @@ export function AdminBountyModal({
                   required
                 />
               </div>
-              <div className="grid gap-2">
+              <div className="grid min-w-0 gap-2">
                 <Label htmlFor="timeToComplete">Completion Deadline</Label>
                 <div className="relative">
                   <Input
                     id="timeToComplete"
                     type="date"
-                    min={new Date().toISOString().split("T")[0]}
-                    value={
-                      formData.timeToComplete instanceof Date &&
-                      !isNaN(formData.timeToComplete.getTime())
-                        ? formData.timeToComplete.toISOString().split("T")[0]
-                        : ""
-                    }
+                    min={toDateInputValue(new Date())}
+                    value={toDateInputValue(formData.timeToComplete)}
                     onChange={handleDateChange}
                     required
                   />
-                  <CalendarIcon className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  <CalendarIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-slate-400" />
                 </div>
               </div>
             </div>
+
             <div className="grid gap-2">
               <Label htmlFor="admin-description">Description</Label>
               <Textarea
@@ -257,11 +267,12 @@ export function AdminBountyModal({
                   }))
                 }
                 placeholder="Describe the bounty requirements, deliverables, and any specific instructions..."
-                className="min-h-[100px]"
+                className="min-h-[100px] max-h-[300px] resize-y"
                 required
               />
             </div>
-            <div className="grid gap-2">
+
+            <div className="grid min-w-0 gap-2">
               <Label htmlFor="assignee">Assign to (Optional)</Label>
               <Select
                 value={formData.assignee}
@@ -270,15 +281,16 @@ export function AdminBountyModal({
                 }
                 disabled={usersLoading}
               >
-                <SelectTrigger>
+                <SelectTrigger id="assignee" className="w-full min-w-0">
                   <SelectValue
+                    className="truncate"
                     placeholder={
                       usersLoading
                         ? "Loading users..."
                         : "Select a user to assign this bounty to..."
                     }
                   />
-                  {usersLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {usersLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No assignment</SelectItem>
@@ -301,7 +313,9 @@ export function AdminBountyModal({
               )}
             </div>
           </div>
-          <DialogFooter>
+
+          {/* Pinned footer: always visible */}
+          <DialogFooter className="flex-col-reverse gap-2 border-t px-4 py-4 sam:flex-row sam:px-6">
             <Button
               type="button"
               variant="outline"

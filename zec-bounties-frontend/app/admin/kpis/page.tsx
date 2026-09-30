@@ -12,20 +12,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ArrowUpDown, Zap, Users, Pencil } from "lucide-react";
 import {
-  ArrowUpDown,
-  Zap,
-  Users,
-  Shield,
-  Pencil,
-  Server,
-  Pickaxe,
-  BookOpen,
-  AlertTriangle,
-  TreeDeciduous,
-  Leaf,
-  HelpCircle,
-} from "lucide-react";
+  BadgeIcons,
+  BadgeSvg,
+  SpecialtyFilterChips,
+  StarFilterChips,
+  AssignableBadgeList,
+} from "@/components/badges/badge-icons";
+import {
+  UaReceiverIcons,
+  UaFilterChips,
+  matchesReceiverFilter,
+  type UaReceiverKey,
+} from "@/components/address/ua-receiver-icons";
+import { getBadgeTooltip, matchesBadgeFilter } from "@/lib/badges";
 import {
   ResponsiveContainer,
   BarChart,
@@ -60,12 +61,16 @@ import { confirmedTotal, fmt } from "@/lib/utils";
 import { backendUrl } from "@/lib/configENV";
 import { AdminNavbar } from "@/components/layout/admin/navbar";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+import { profileHref } from "@/lib/profileHref";
+import { toast } from "sonner";
 
 type SortKey = "completed" | "submitted" | "completionRate" | "totalEarned";
 type ChainFilter = "all" | "MAIN" | "TEST";
 type ChartType =
   | "contributors"
   | "earned"
+  | "topEarners"
   | "bountyTypes"
   | "addressTypes"
   | "avgEarnings";
@@ -78,21 +83,6 @@ const CHART_PALETTE = [
   "var(--chart-5)",
   "var(--primary)",
 ];
-
-const BADGE_LABELS: Record<string, string> = {
-  "dao-member": "DAO Member",
-  "node-runner": "Node Runner",
-  miner: "Miner",
-  researcher: "Researcher",
-  admin: "Admin",
-};
-
-const getBadgeTooltip = (badges?: string[]) => {
-  const realBadges = badges?.filter((b) => !b.startsWith("avatar:"));
-  return realBadges && realBadges.length > 0
-    ? realBadges.map((b) => BADGE_LABELS[b] ?? b).join(" • ")
-    : "Regular User";
-};
 
 function UserAvatar({
   user,
@@ -174,7 +164,10 @@ export default function KpisDashboard() {
   );
   const [sortKey, setSortKey] = useState<SortKey>("completed");
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
-  const [showAllUsers, setShowAllUsers] = useState(false);
+  const [showAllUsers, setShowAllUsers] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return sessionStorage.getItem("kpis:showAllUsers") === "true";
+  });
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const [isRescanning, setIsRescanning] = useState(false);
   const [rescanMessage, setRescanMessage] = useState("");
@@ -199,167 +192,23 @@ export default function KpisDashboard() {
   const [chainFilter, setChainFilter] = useState<ChainFilter>("all");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement>(null);
-
-  const availableBadges = [
-    { key: "dao-member", label: "DAO Member" },
-    { key: "node-runner", label: "Node Runner" },
-    { key: "miner", label: "Miner" },
-    { key: "researcher", label: "Researcher" },
-  ];
-
-  // Final simplified badge logic
-  // Updated: Supports showing multiple badges at once
-  const getBadgeIcons = (
-    completed: number,
-    badges?: string[],
-    role?: string,
-  ) => {
-    const icons = [];
-
-    let badgeClass = "text-muted-foreground";
-
-    if (completed >= 60) {
-      badgeClass = "text-pink-500";
-    } else if (completed >= 20) {
-      badgeClass = "text-yellow-500";
-    } else if (completed >= 10) {
-      badgeClass = "text-purple-500";
-    } else if (completed >= 5) {
-      badgeClass = "text-blue-500";
-    } else if (completed >= 1) {
-      badgeClass = "text-red-500";
-    }
-
-    icons.push(
-      <div key="member" title="Member">
-        <Users className={`w-4 h-4 ${badgeClass}`} />
-      </div>,
-    );
-
-    // Regular badges
-    if (role === "ADMIN" || badges?.includes("admin")) {
-      icons.push(
-        <div
-          key="admin"
-          title="Admin"
-          className="text-purple-500 dark:text-purple-400"
-        >
-          <Shield className="w-4 h-4" />
-        </div>,
-      );
-    }
-
-    if (badges?.includes("dao-member")) {
-      icons.push(
-        <div
-          key="dao-member"
-          title="DAO Member"
-          className="text-teal-500 dark:text-teal-400"
-        >
-          <img src="/ZecHubBlue.png" alt="ZecHub" className="w-4 h-4" />
-        </div>,
-      );
-    }
-
-    if (badges?.includes("node-runner")) {
-      icons.push(
-        <div
-          key="node-runner"
-          title="Node Runner"
-          className="text-blue-500 dark:text-blue-400"
-        >
-          <Server className="w-4 h-4" />
-        </div>,
-      );
-    }
-
-    if (badges?.includes("miner")) {
-      icons.push(
-        <div
-          key="miner"
-          title="Miner"
-          className="text-orange-500 dark:text-orange-400"
-        >
-          <Pickaxe className="w-4 h-4" />
-        </div>,
-      );
-    }
-
-    if (badges?.includes("researcher")) {
-      icons.push(
-        <div
-          key="researcher"
-          title="Researcher"
-          className="text-emerald-500 dark:text-emerald-400"
-        >
-          <BookOpen className="w-4 h-4" />
-        </div>,
-      );
-    }
-
-    // Default regular user icon (only if no override and no other badges)
-    if (icons.length === 0) {
-      icons.push(
-        <div
-          key="regular"
-          title="Regular User"
-          className="text-muted-foreground"
-        >
-          <Users className="w-4 h-4" />
-        </div>,
-      );
-    }
-
-    return icons;
-  };
-
+  const [userFilter, setUserFilter] = useState("");
   // Dynamic default avatar color based on completed bounties
   const getDefaultAvatarClasses = (
     completed: number,
     badges: string[] = [],
   ) => {
-    // Check for manual avatar override first
-    const avatarOverride = badges.find((b) => b.startsWith("avatar:"));
-
-    if (avatarOverride) {
-      switch (avatarOverride) {
-        case "avatar:red":
-          return "bg-red-500 text-white";
-        case "avatar:blue":
-          return "bg-blue-500 text-white";
-        case "avatar:purple":
-          return "bg-purple-500 text-white";
-        case "avatar:gold":
-          return "bg-yellow-500 text-black";
-        case "avatar:pink":
-          return "bg-pink-500 text-white"; // ← This was missing
-        case "avatar:default":
-        default:
-          break;
-      }
-    }
-
-    // Automatic based on completed bounties
-    if (completed >= 60) {
-      return "bg-pink-500 text-white"; // Pink
-    }
-    if (completed >= 20) {
-      return "bg-yellow-500 text-black"; // Gold
-    }
-    if (completed >= 10) {
-      return "bg-purple-500 text-white"; // Purple
-    }
-    if (completed >= 5) {
-      return "bg-blue-500 text-white"; // Blue
-    }
-    if (completed >= 1) {
-      return "bg-red-500 text-white"; // Red
-    }
-    return "bg-muted text-muted-foreground"; // Default
+    return "bg-muted text-muted-foreground";
   };
 
   // === Time Range Filter ===
   const [timeRange, setTimeRange] = useState<"30d" | "90d" | "all">("all");
+
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([]);
+  const [receiverFilter, setReceiverFilter] = useState<UaReceiverKey[]>([]);
+  const [receiverMode, setReceiverMode] = useState<"all" | "any" | "exact">(
+    "all",
+  );
 
   const timeRangeConfig = {
     "30d": {
@@ -454,6 +303,11 @@ export default function KpisDashboard() {
     }
   }, [viewMode]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    sessionStorage.setItem("kpis:showAllUsers", String(showAllUsers));
+  }, [showAllUsers]);
+
   // Fetch top contributors
   useEffect(() => {
     const loadData = async () => {
@@ -483,12 +337,40 @@ export default function KpisDashboard() {
             if (user.UA_address) {
               try {
                 const decoded = getAddressReceivers(user.UA_address);
-                return { ...user, addressType: decoded.type };
+                return {
+                  ...user,
+                  addressType: decoded.type,
+                  receivers: {
+                    ironwood: !!decoded.ironwood,
+                    sapling: !!decoded.sapling,
+                    transparent: !!decoded.transparent,
+                  },
+                };
               } catch {
                 return user;
               }
             }
-            return user;
+            // Lone z-address is treated as Sapling-only (app disallows UA + z together)
+            if (user.z_address) {
+              return {
+                ...user,
+                addressType: "Sapling",
+                receivers: {
+                  ironwood: false,
+                  sapling: true,
+                  transparent: false,
+                },
+              };
+            }
+            return {
+              ...user,
+              addressType: user.addressType || "None",
+              receivers: user.receivers || {
+                ironwood: false,
+                sapling: false,
+                transparent: false,
+              },
+            };
           });
         }
         setTopContributors(data);
@@ -595,6 +477,17 @@ export default function KpisDashboard() {
     });
   }, [topContributors, sortKey, sortDirection]);
 
+  const displayedContributors = useMemo(() => {
+    return sortedContributors.filter((u) => {
+      if (!matchesBadgeFilter(badgeFilter, u)) return false;
+      return matchesReceiverFilter(
+        (u as any).receivers,
+        receiverFilter,
+        receiverMode,
+      );
+    });
+  }, [sortedContributors, badgeFilter, receiverFilter, receiverMode]);
+
   const totalBounties = useMemo(
     () => topContributors.reduce((sum, u) => sum + (u.submitted || 0), 0),
     [topContributors],
@@ -620,13 +513,30 @@ export default function KpisDashboard() {
     return earners.length > 0 ? totalZecPaid / earners.length : 0;
   }, [topContributors, totalZecPaid]);
 
-  const earnedOverTime = useMemo(() => {
-    if (!topContributors.length) return [];
+  // Real calendar series from API (respects chain + timeRange via average-earnings fetch)
+  const zecEarnedOverTime = useMemo(() => {
     let cumulative = 0;
-    return topContributors.slice(0, 12).map((user) => {
-      cumulative += user.totalEarned || 0;
-      return { month: user.name, total: cumulative };
+    return (averageEarningsOverTime || []).map((row: any) => {
+      const paid = Number(row.totalPaid) || 0;
+      cumulative += paid;
+      return {
+        month: row.month,
+        totalPaid: paid,
+        cumulative: Number(cumulative.toFixed(4)),
+      };
     });
+  }, [averageEarningsOverTime]);
+
+  // Per-member totals — matches table column (same topContributors / chain)
+  const topEarnersChart = useMemo(() => {
+    return [...topContributors]
+      .filter((u) => (u.totalEarned || 0) > 0)
+      .sort((a, b) => (b.totalEarned || 0) - (a.totalEarned || 0))
+      .slice(0, 12)
+      .map((u) => ({
+        name: u.name || "Unknown",
+        totalEarned: Number(u.totalEarned || 0),
+      }));
   }, [topContributors]);
 
   const addressTypeDistribution = useMemo(() => {
@@ -688,6 +598,7 @@ export default function KpisDashboard() {
   };
 
   const closeBadgeModal = () => {
+    setUserFilter("");
     setIsBadgeModalOpen(false);
     setSelectedUserForBadges(null);
     setSelectedBadges([]);
@@ -720,143 +631,27 @@ export default function KpisDashboard() {
 
       if (!res.ok) throw new Error("Failed to update badges");
 
-      // Better than window.location.reload()
-      // Re-fetch the contributors list
-      const params = new URLSearchParams();
-      if (showAllUsers) params.set("all", "true");
-      params.set("timeRange", timeRange);
-
-      const refreshRes = await fetch(
-        `${backendUrl}/api/kpis/top-contributors?${params.toString()}`,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-          },
-        },
+      // Keep the current table rows. A full refetch returns UA users with
+      // empty receivers (WASM decode only runs on the initial load), which
+      // paints every Address Type cell as No Address until a page refresh.
+      setTopContributors((prev) =>
+        prev.map((user) =>
+          user.id === selectedUserForBadges.id
+            ? { ...user, badges: selectedBadges }
+            : user,
+        ),
       );
 
-      if (refreshRes.ok) {
-        let newData = await refreshRes.json();
-        setTopContributors(newData);
-      }
-
+      toast.success("Badges updated");
       closeBadgeModal();
     } catch (error) {
       console.error(error);
-      alert("Failed to save badges");
+      toast.error("Failed to save badges", {
+        description: "Please try again.",
+      });
     } finally {
       setIsSavingBadges(false);
     }
-  };
-
-  const getAddressTypeIcons = (type: string | undefined) => {
-    if (!type) {
-      return [
-        <div
-          key="none"
-          title="No Shielded Address"
-          className="flex items-center justify-center"
-        >
-          <AlertTriangle className="w-5 h-5 text-yellow-400" />
-        </div>,
-      ];
-    }
-
-    const normalized = type.toLowerCase().trim();
-
-    // Ironwood (any UA containing Orchard or Ironwood)
-    if (
-      normalized.includes("ironwood") ||
-      normalized.includes("orchard") ||
-      normalized === "ua only" ||
-      normalized === "ua + z" ||
-      normalized === "full"
-    ) {
-      return [
-        <div
-          key="ironwood"
-          title={getDisplayAddressType(type)}
-          className="flex items-center justify-center w-6 h-6 rounded-full bg-zinc-700 border-2 border-zinc-300"
-        >
-          <TreeDeciduous className="w-3.5 h-3.5 text-zinc-200" />
-        </div>,
-      ];
-    }
-
-    // Pure Sapling
-    if (normalized.includes("sapling")) {
-      return [
-        <div
-          key="sapling"
-          title="Sapling"
-          className="flex items-center justify-center"
-        >
-          <Leaf className="w-5 h-5 text-emerald-400" />
-        </div>,
-      ];
-    }
-
-    // Transparent or None
-    if (
-      normalized.includes("transparent") ||
-      normalized === "none" ||
-      normalized === ""
-    ) {
-      return [
-        <div
-          key="transparent"
-          title="none"
-          className="flex items-center justify-center"
-        >
-          -
-        </div>,
-      ];
-    }
-
-    // Fallback
-    return [
-      <div
-        key="unknown"
-        title={type}
-        className="flex items-center justify-center"
-      >
-        <HelpCircle className="w-5 h-5 text-slate-400" />
-      </div>,
-    ];
-  };
-
-  // Address Type Helpers
-  const getAddressTypeBadge = (type?: string) => {
-    const normalized = type?.toLowerCase();
-    if (normalized === "none")
-      return "bg-red-500/20 text-red-500 dark:text-red-400 border border-red-500/30";
-    if (normalized?.includes("orchard") && normalized?.includes("sapling"))
-      return "bg-gradient-to-r from-emerald-500 to-blue-500 text-white";
-    if (normalized?.includes("orchard"))
-      return "bg-gradient-to-r from-emerald-500 to-green-600 text-white";
-    if (normalized?.includes("sapling"))
-      return "bg-gradient-to-r from-blue-500 to-indigo-500 text-white";
-    if (normalized?.includes("transparent"))
-      return "bg-gradient-to-r from-slate-500 to-slate-600 text-white";
-    if (normalized === "ua + z" || normalized === "full")
-      return "bg-gradient-to-r from-emerald-500 to-blue-500 text-white";
-    if (normalized === "ua only")
-      return "bg-gradient-to-r from-emerald-500 to-green-600 text-white";
-    return "bg-muted text-muted-foreground";
-  };
-
-  const getDisplayAddressType = (type?: string) => {
-    const normalized = type?.toLowerCase();
-    if (normalized === "none") return "No UA";
-    if (normalized?.includes("orchard") && normalized?.includes("sapling"))
-      return "Orchard + Sapling";
-    if (normalized?.includes("orchard")) return "Orchard";
-    if (normalized?.includes("sapling")) return "Sapling";
-    if (normalized?.includes("transparent")) return "Transparent";
-    if (normalized === "ua + z" || normalized === "full")
-      return "Orchard + Sapling";
-    if (normalized === "ua only") return "Orchard";
-    return type;
   };
 
   return (
@@ -916,9 +711,9 @@ export default function KpisDashboard() {
                   <SlidersHorizontal className="w-3.5 h-3.5" />
                   {currentTimeConfig.label} · {chainLabel}
                 </Button>
-
                 {filtersOpen && (
                   <div className="absolute right-0 mt-2 w-56 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg p-3 z-20">
+                    {/* Time Range */}
                     <div className="mb-3">
                       <p className="text-xs text-muted-foreground mb-1.5 px-1">
                         Time Range
@@ -936,6 +731,8 @@ export default function KpisDashboard() {
                         </button>
                       ))}
                     </div>
+
+                    {/* Chain */}
                     <div className="border-t border-border pt-3">
                       <p className="text-xs text-muted-foreground mb-1.5 px-1">
                         Chain
@@ -959,14 +756,104 @@ export default function KpisDashboard() {
                         </button>
                       ))}
                     </div>
+
+                    {/* Badges */}
+                    <div className="border-t border-border pt-3">
+                      <p className="text-xs text-muted-foreground mb-1.5 px-1">
+                        Badges
+                      </p>
+                      <div className="px-1">
+                        <SpecialtyFilterChips
+                          compact
+                          value={badgeFilter}
+                          onChange={setBadgeFilter}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Stars — replaces old avatar color filter */}
+                    <div className="border-t border-border pt-3">
+                      <p className="text-xs text-muted-foreground mb-1.5 px-1">
+                        Stars
+                      </p>
+                      <div className="px-1">
+                        <StarFilterChips
+                          value={badgeFilter}
+                          onChange={setBadgeFilter}
+                        />
+                      </div>
+                    </div>
+
+                    {/* UA receivers — admin KPI page only */}
+                    <div className="border-t border-border pt-3">
+                      <p className="text-xs text-muted-foreground mb-1.5 px-1">
+                        UA receivers
+                      </p>
+                      <div className="px-1 mb-2">
+                        <UaFilterChips
+                          value={receiverFilter}
+                          onChange={setReceiverFilter}
+                        />
+                      </div>
+                      <div className="flex gap-1 px-1">
+                        <button
+                          type="button"
+                          onClick={() => setReceiverMode("all")}
+                          className={`px-2 py-0.5 rounded text-xs border ${
+                            receiverMode === "all"
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "hover:bg-muted border-border"
+                          }`}
+                        >
+                          All
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReceiverMode("any")}
+                          className={`px-2 py-0.5 rounded text-xs border ${
+                            receiverMode === "any"
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "hover:bg-muted border-border"
+                          }`}
+                        >
+                          Any
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReceiverMode("exact")}
+                          className={`px-2 py-0.5 rounded text-xs border ${
+                            receiverMode === "exact"
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "hover:bg-muted border-border"
+                          }`}
+                        >
+                          Exact
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Clear */}
+                    {(badgeFilter.length > 0 || receiverFilter.length > 0) && (
+                      <div className="border-t border-border pt-2 mt-1">
+                        <button
+                          type="button"
+                          className="w-full text-xs text-muted-foreground hover:text-foreground px-2 py-1"
+                          onClick={() => {
+                            setBadgeFilter([]);
+                            setReceiverFilter([]);
+                          }}
+                        >
+                          Clear filters
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
           </div>
-
           {/* Top Stats Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+          <div className="grid grid-cols-1 imd:grid-cols-4 xl:grid-cols-6 gap-4 mb-8">
             {[
               { label: "Total Bounties", value: totalBounties },
               {
@@ -1054,11 +941,11 @@ export default function KpisDashboard() {
                       >
                         Submitted <ArrowUpDown className="inline w-4 h-4" />
                       </TableHead>
-                      {/* Admin-only columns */}
-                      {viewMode === "admin" && (
-                        <TableHead>
-                          <div className="flex items-center gap-2">
-                            <span>Badges</span>
+                      {/* Badges — public; edit control admin-only */}
+                      <TableHead>
+                        <div className="flex items-center gap-2">
+                          <span>Badges</span>
+                          {isAdmin && viewMode === "admin" && (
                             <button
                               onClick={() => {
                                 setSelectedUserForBadges(null);
@@ -1070,44 +957,52 @@ export default function KpisDashboard() {
                             >
                               <Pencil className="w-4 h-4 text-muted-foreground hover:text-foreground" />
                             </button>
-                          </div>
+                          )}
+                        </div>
+                      </TableHead>
+                      {viewMode === "admin" && (
+                        <TableHead className="w-[7.5rem]">
+                          <span className="flex w-full justify-center">
+                            Address Type
+                          </span>
                         </TableHead>
                       )}
                       {viewMode === "admin" && (
-                        <TableHead>Address Type</TableHead>
-                      )}
-                      {viewMode === "admin" && (
                         <TableHead
-                          className="text-right cursor-pointer"
+                          className="cursor-pointer"
                           onClick={() => toggleSort("totalEarned")}
                         >
-                          Total ZEC Earned{" "}
-                          <ArrowUpDown className="inline w-4 h-4" />
+                          <span className="flex w-full items-center justify-end gap-1">
+                            Total ZEC Earned
+                            <ArrowUpDown className="w-4 h-4" />
+                          </span>
                         </TableHead>
                       )}
                       {viewMode === "admin" && (
                         <TableHead
-                          className="text-right cursor-pointer"
+                          className="cursor-pointer"
                           onClick={() => toggleSort("completionRate")}
                         >
-                          Completion %{" "}
-                          <ArrowUpDown className="inline w-4 h-4" />
+                          <span className="flex w-full items-center justify-end gap-1">
+                            Completion %
+                            <ArrowUpDown className="w-4 h-4" />
+                          </span>
                         </TableHead>
                       )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {sortedContributors.length === 0 ? (
+                    {displayedContributors.length === 0 ? (
                       <TableRow>
                         <TableCell
-                          colSpan={viewMode === "admin" ? 9 : 5}
+                          colSpan={viewMode === "admin" ? 9 : 6}
                           className="text-center py-8 text-muted-foreground"
                         >
                           No data available.
                         </TableCell>
                       </TableRow>
                     ) : (
-                      sortedContributors.map((user, index) => {
+                      displayedContributors.map((user, index) => {
                         const rate =
                           user.submitted > 0
                             ? Math.round(
@@ -1123,60 +1018,57 @@ export default function KpisDashboard() {
 
                             {/* Avatar with hover tooltip */}
                             <TableCell>
-                              <UserAvatar
-                                user={user}
-                                getDefaultAvatarClasses={
-                                  getDefaultAvatarClasses
-                                }
-                              />
+                              <Link
+                                href={profileHref(user)}
+                                className="inline-block hover:opacity-80"
+                                title="View profile"
+                              >
+                                <UserAvatar
+                                  user={user}
+                                  getDefaultAvatarClasses={
+                                    getDefaultAvatarClasses
+                                  }
+                                />
+                              </Link>
                             </TableCell>
-                            <TableCell>{user.name}</TableCell>
+                            <TableCell>
+                              <Link
+                                href={profileHref(user)}
+                                className="hover:underline font-medium"
+                              >
+                                {user.name}
+                              </Link>
+                            </TableCell>
                             <TableCell>{user.completed}</TableCell>
                             <TableCell className="text-muted-foreground">
                               {user.submitted}
                             </TableCell>
-
-                            {/* Admin-only columns */}
+                            {/* Badges — public */}
+                            <TableCell>
+                              <div className="flex items-center gap-1.5">
+                                <BadgeIcons
+                                  completed={user.completed}
+                                  badges={user.badges}
+                                  role={user.role}
+                                />
+                              </div>
+                            </TableCell>
                             {viewMode === "admin" && (
                               <TableCell>
-                                <div className="flex items-center gap-1.5">
-                                  {getBadgeIcons(
-                                    user.completed,
-                                    user.badges,
-                                    user.role,
-                                  )}
+                                <div className="flex justify-center">
+                                  <UaReceiverIcons receivers={user.receivers} />
                                 </div>
                               </TableCell>
                             )}
-
                             {viewMode === "admin" && (
-                              <TableCell>
-                                <div className="flex items-center justify-center gap-1.5">
-                                  {getAddressTypeIcons(user.addressType)}
-                                </div>
-                              </TableCell>
-                            )}
-
-                            {/* {viewMode === "admin" && (
-                              <TableCell>
-                                <span
-                                  className={`px-2.5 py-0.5 text-xs rounded-full ${getAddressTypeBadge(user.addressType)}`}
-                                >
-                                  {getDisplayAddressType(user.addressType)}
-                                </span>
-                              </TableCell>
-                            )} */}
-
-                            {viewMode === "admin" && (
-                              <TableCell className="text-right font-medium">
+                              <TableCell className="text-right font-medium tabular-nums">
                                 {user.totalEarned
                                   ? user.totalEarned.toFixed(4)
                                   : "0.0000"}
                               </TableCell>
                             )}
-
                             {viewMode === "admin" && (
-                              <TableCell className="text-right font-medium">
+                              <TableCell className="text-right font-medium tabular-nums">
                                 {rate}%
                               </TableCell>
                             )}
@@ -1205,6 +1097,7 @@ export default function KpisDashboard() {
                   >
                     <option value="contributors">Contributors Over Time</option>
                     <option value="earned">Total ZEC Earned Over Time</option>
+                    <option value="topEarners">Top Earners</option>
                     <option value="bountyTypes">Bounty Types Over Time</option>
                     <option value="addressTypes">
                       Address Type Distribution
@@ -1248,12 +1141,27 @@ export default function KpisDashboard() {
                 )}
                 {selectedChart === "earned" && (
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={earnedOverTime}>
+                    <BarChart data={zecEarnedOverTime}>
                       <CartesianGrid
                         strokeDasharray="3 3"
                         stroke="var(--border)"
                       />
-                      <XAxis dataKey="month" stroke="var(--muted-foreground)" />
+                      <XAxis
+                        dataKey="month"
+                        stroke="var(--muted-foreground)"
+                        tickFormatter={(value) => {
+                          const [year, month] = String(value).split("-");
+                          if (!year || !month) return value;
+                          const date = new Date(
+                            parseInt(year, 10),
+                            parseInt(month, 10) - 1,
+                          );
+                          return date.toLocaleString("default", {
+                            month: "short",
+                            year: "2-digit",
+                          });
+                        }}
+                      />
                       <YAxis stroke="var(--muted-foreground)" />
                       <Tooltip
                         cursor={{ fill: "var(--muted)", opacity: 0.4 }}
@@ -1266,7 +1174,51 @@ export default function KpisDashboard() {
                       />
                       <Legend />
                       <Bar
-                        dataKey="total"
+                        dataKey="totalPaid"
+                        name="ZEC paid this month"
+                        fill="var(--chart-2)"
+                        radius={[4, 4, 0, 0]}
+                        activeBar={false}
+                      />
+                      <Bar
+                        dataKey="cumulative"
+                        name="Cumulative ZEC paid"
+                        fill="var(--chart-1)"
+                        radius={[4, 4, 0, 0]}
+                        activeBar={false}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {selectedChart === "topEarners" && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={topEarnersChart}>
+                      <CartesianGrid
+                        strokeDasharray="3 3"
+                        stroke="var(--border)"
+                      />
+                      <XAxis
+                        dataKey="name"
+                        stroke="var(--muted-foreground)"
+                        interval={0}
+                        angle={-25}
+                        textAnchor="end"
+                        height={70}
+                        tick={{ fontSize: 11 }}
+                      />
+                      <YAxis stroke="var(--muted-foreground)" />
+                      <Tooltip
+                        cursor={{ fill: "var(--muted)", opacity: 0.4 }}
+                        contentStyle={{
+                          backgroundColor: "var(--popover)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "6px",
+                          color: "var(--popover-foreground)",
+                        }}
+                      />
+                      <Legend />
+                      <Bar
+                        dataKey="totalEarned"
                         name="Total ZEC Earned"
                         fill="var(--chart-2)"
                         radius={[4, 4, 0, 0]}
@@ -1520,8 +1472,8 @@ export default function KpisDashboard() {
           {/* === Badge Management Modal === */}
           {isBadgeModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-              <div className="w-full max-w-md rounded-xl bg-popover text-popover-foreground p-6 shadow-xl border border-border">
-                <div className="mb-4 flex items-center justify-between">
+              <div className="w-full max-w-md max-h-[85vh] rounded-xl bg-popover text-popover-foreground shadow-xl border border-border flex flex-col">
+                <div className="flex items-center justify-between p-6 pb-4 flex-shrink-0">
                   <h2 className="text-xl font-semibold">Manage User Badges</h2>
                   <button
                     onClick={closeBadgeModal}
@@ -1531,213 +1483,192 @@ export default function KpisDashboard() {
                   </button>
                 </div>
 
-                {/* User Selector - only show if no user is pre-selected */}
-                {!selectedUserForBadges && (
-                  <div className="mb-4">
-                    <label className="text-sm text-muted-foreground mb-1 block">
-                      Select User
-                    </label>
-                    <Select
-                      value=""
-                      onValueChange={(userId) => {
-                        const user = topContributors.find(
-                          (u) => u.id === userId,
-                        );
-                        if (user) {
-                          setSelectedUserForBadges(user);
-                          setSelectedBadges(user.badges || []);
-                        }
-                      }}
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Choose a user..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {topContributors.map((user) => (
-                          <SelectItem key={user.id} value={user.id}>
-                            {user.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-
-                {/* Show user name if already selected */}
-                {selectedUserForBadges && (
-                  <div className="mb-4">
-                    <p className="text-sm text-muted-foreground mb-1">User</p>
-                    <div className="font-medium">
-                      {selectedUserForBadges.name}
-                    </div>
-                  </div>
-                )}
-
-                {/* Badges Multi-Select */}
-                {selectedUserForBadges && (
-                  <div className="mb-6">
-                    <p className="text-sm text-muted-foreground mb-2">Badges</p>
-                    <div className="space-y-2">
-                      {availableBadges.map((badge) => {
-                        // Get the proper icon for each badge type
-                        const getBadgeIcon = (key: string) => {
-                          if (key === "dao-member") {
-                            return (
-                              <img
-                                src="/ZecHubBlue.png"
-                                alt="ZecHub"
-                                className="w-4 h-4"
-                              />
-                            );
-                          }
-                          if (key === "node-runner") {
-                            return (
-                              <Server className="w-4 h-4 text-blue-500 dark:text-blue-400" />
-                            );
-                          }
-                          if (key === "miner") {
-                            return (
-                              <Pickaxe className="w-4 h-4 text-orange-500 dark:text-orange-400" />
-                            );
-                          }
-                          if (key === "researcher") {
-                            return (
-                              <BookOpen className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
-                            );
-                          }
-                          return null;
-                        };
-
-                        return (
-                          <label
-                            key={badge.key}
-                            className="flex items-center gap-3 rounded-lg border border-border px-3 py-2 hover:bg-muted cursor-pointer"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={selectedBadges.includes(badge.key)}
-                              onChange={() => toggleBadge(badge.key)}
-                              className="h-4 w-4 accent-primary"
-                            />
-                            <div className="flex items-center gap-2">
-                              {getBadgeIcon(badge.key)}
-                              <span>{badge.label}</span>
+                {/* Scrollable body */}
+                <div className="flex-1 overflow-y-auto px-6">
+                  {/* User Selector - only show if no user is pre-selected */}
+                  {!selectedUserForBadges && (
+                    <div className="mb-4">
+                      <label className="text-sm text-muted-foreground mb-1 block">
+                        Select User
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          placeholder="Type to filter users..."
+                          value={userFilter}
+                          onChange={(e) => setUserFilter(e.target.value)}
+                          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          autoFocus
+                        />
+                        <div className="mt-1 max-h-60 overflow-y-auto rounded-md border border-border bg-popover shadow-md">
+                          {topContributors
+                            .filter((u) =>
+                              u.name
+                                .toLowerCase()
+                                .includes(userFilter.toLowerCase().trim()),
+                            )
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((user) => (
+                              <button
+                                key={user.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedUserForBadges(user);
+                                  setSelectedBadges(user.badges || []);
+                                  setUserFilter("");
+                                }}
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                              >
+                                {user.name}
+                              </button>
+                            ))}
+                          {topContributors.filter((u) =>
+                            u.name
+                              .toLowerCase()
+                              .includes(userFilter.toLowerCase().trim()),
+                          ).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">
+                              No users found
                             </div>
-                          </label>
-                        );
-                      })}
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {/* Avatar Color Override */}
-                {selectedUserForBadges && (
-                  <div className="mb-6 border-t border-border pt-4">
-                    <p className="text-sm text-muted-foreground mb-3">
-                      Avatar Color Override
-                    </p>
-                    <div className="space-y-1">
-                      {[
-                        {
-                          value: "avatar:default",
-                          label: "Default (based on completed bounties)",
-                          minCompleted: 0,
-                          colorClass: "bg-muted text-muted-foreground",
-                        },
-                        {
-                          value: "avatar:red",
-                          label: "Red",
-                          minCompleted: 1,
-                          colorClass: "bg-red-500 text-white",
-                        },
-                        {
-                          value: "avatar:blue",
-                          label: "Blue",
-                          minCompleted: 5,
-                          colorClass: "bg-blue-500 text-white",
-                        },
-                        {
-                          value: "avatar:purple",
-                          label: "Purple",
-                          minCompleted: 10,
-                          colorClass: "bg-purple-500 text-white",
-                        },
-                        {
-                          value: "avatar:gold",
-                          label: "Gold",
-                          minCompleted: 20,
-                          colorClass: "bg-yellow-500 text-black",
-                        },
-                        {
-                          value: "avatar:pink",
-                          label: "Pink",
-                          minCompleted: 60,
-                          colorClass: "bg-pink-500 text-white",
-                        },
-                      ].map((option) => {
-                        const isSelected =
-                          selectedBadges.includes(option.value) ||
-                          (option.value === "avatar:default" &&
-                            !selectedBadges.some((b) =>
-                              b.startsWith("avatar:"),
-                            ));
+                  {/* Show user name if already selected */}
+                  {selectedUserForBadges && (
+                    <div className="mb-4">
+                      <p className="text-sm text-muted-foreground mb-1">User</p>
+                      <div className="font-medium">
+                        {selectedUserForBadges.name}
+                      </div>
+                    </div>
+                  )}
 
-                        return (
-                          <button
-                            key={option.value}
-                            onClick={() => {
-                              const filtered = selectedBadges.filter(
-                                (b) => !b.startsWith("avatar:"),
-                              );
-                              if (option.value !== "avatar:default") {
-                                setSelectedBadges([...filtered, option.value]);
-                              } else {
-                                setSelectedBadges(filtered);
-                              }
-                            }}
-                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
-                              isSelected
-                                ? "bg-muted border border-primary"
-                                : "hover:bg-muted/50 border border-transparent"
-                            }`}
-                          >
-                            {/* Colored Member Icon */}
-                            <div
-                              className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${option.colorClass}`}
+                  {/* Badges Multi-Select */}
+                  {selectedUserForBadges && (
+                    <div className="mb-6">
+                      <p className="text-sm text-muted-foreground mb-2">
+                        Badges
+                      </p>
+                      <AssignableBadgeList
+                        selected={selectedBadges}
+                        onToggle={toggleBadge}
+                      />
+                    </div>
+                  )}
+
+                  {/* Star Override */}
+                  {selectedUserForBadges && (
+                    <div className="mb-6 border-t border-border pt-4">
+                      <p className="text-sm text-muted-foreground mb-3">
+                        Star Override
+                      </p>
+                      <div className="space-y-1">
+                        {[
+                          {
+                            value: "avatar:default",
+                            label: "Default (based on completed bounties)",
+                            star: null,
+                          },
+                          {
+                            value: "avatar:1",
+                            label: "1 Task",
+                            star: "1-task",
+                          },
+                          {
+                            value: "avatar:5",
+                            label: "5 Tasks",
+                            star: "5-tasks",
+                          },
+                          {
+                            value: "avatar:10",
+                            label: "10 Tasks",
+                            star: "10-tasks",
+                          },
+                          {
+                            value: "avatar:15",
+                            label: "15 Tasks",
+                            star: "15-tasks",
+                          },
+                          {
+                            value: "avatar:25",
+                            label: "25 Tasks",
+                            star: "25-tasks",
+                          },
+                          {
+                            value: "avatar:50",
+                            label: "50 Tasks",
+                            star: "50-tasks",
+                          },
+                        ].map((option) => {
+                          const isSelected =
+                            selectedBadges.includes(option.value) ||
+                            (option.value === "avatar:default" &&
+                              !selectedBadges.some((b) =>
+                                b.startsWith("avatar:"),
+                              ));
+
+                          return (
+                            <button
+                              key={option.value}
+                              onClick={() => {
+                                const filtered = selectedBadges.filter(
+                                  (b) => !b.startsWith("avatar:"),
+                                );
+                                if (option.value !== "avatar:default") {
+                                  setSelectedBadges([
+                                    ...filtered,
+                                    option.value,
+                                  ]);
+                                } else {
+                                  setSelectedBadges(filtered);
+                                }
+                              }}
+                              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                                isSelected
+                                  ? "bg-muted border border-primary"
+                                  : "hover:bg-muted/50 border border-transparent"
+                              }`}
                             >
-                              <Users className="w-3.5 h-3.5" />
-                            </div>
-
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium">
-                                {option.label}
-                              </div>
-                              {option.minCompleted > 0 && (
-                                <div className="text-xs text-muted-foreground">
-                                  Requires {option.minCompleted}+ completed
-                                  bounties
+                              {option.star ? (
+                                <BadgeSvg
+                                  badgeKey={option.star}
+                                  title={option.label}
+                                  className="w-5 h-5"
+                                />
+                              ) : (
+                                <div className="w-5 h-5 rounded-full bg-muted flex items-center justify-center">
+                                  <Users className="w-3.5 h-3.5 text-muted-foreground" />
                                 </div>
                               )}
-                            </div>
 
-                            {isSelected && (
-                              <div className="text-primary text-sm flex-shrink-0">
-                                ✓
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium">
+                                  {option.label}
+                                </div>
                               </div>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
 
-                    <p className="text-xs text-muted-foreground mt-2">
-                      This overrides the automatic avatar color.
-                    </p>
-                  </div>
-                )}
+                              {isSelected && (
+                                <div className="text-primary text-sm flex-shrink-0">
+                                  ✓
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        This overrides the automatic star based on completed
+                        bounties.
+                      </p>
+                    </div>
+                  )}
+                </div>
 
                 {/* Action Buttons */}
-                <div className="flex justify-end gap-3">
+                <div className="flex justify-end gap-3 p-6 pt-4 flex-shrink-0 border-t border-border">
                   <Button
                     variant="outline"
                     onClick={closeBadgeModal}

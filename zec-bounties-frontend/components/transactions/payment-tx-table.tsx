@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Copy, ExternalLink, Shield, CheckCircle, Loader2 } from "lucide-react";
 import { useState } from "react";
+import { getExplorerUrl } from "@/lib/explorer";
 
 interface PaymentID {
   datetime?: string;
@@ -18,22 +19,6 @@ interface PaymentTxIdsTableProps {
   isLoading?: boolean;
   chain?: string; // "mainnet" | "testnet"
   serverUrl?: string; // e.g. "https://mainnet.lightwalletd.com:9067"
-}
-
-// Derive the correct block explorer URL from chain or serverUrl
-function getExplorerUrl(
-  txId: string,
-  chain?: string,
-  serverUrl?: string,
-): string {
-  const isTestnet =
-    chain === "testnet" || serverUrl?.toLowerCase().includes("testnet");
-
-  if (isTestnet) {
-    return `https://zexplorer.app/testnet/tx/${txId}`;
-  }
-
-  return `https://blockchair.com/zcash/transaction/${txId}`;
 }
 
 export function PaymentTxIdsTable({
@@ -55,7 +40,7 @@ export function PaymentTxIdsTable({
   };
 
   const handleViewOnExplorer = (txId: string) => {
-    const url = getExplorerUrl(txId, chain, serverUrl);
+    const url = getExplorerUrl(txId, { chain, serverUrl });
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -120,7 +105,7 @@ export function PaymentTxIdsTable({
   if (isLoading) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between pt-4">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             Payment Transaction IDs
           </h3>
@@ -146,7 +131,7 @@ export function PaymentTxIdsTable({
   if (!paymentIDs || paymentIDs.length === 0) {
     return (
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between pt-4">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
             Payment Transaction IDs
           </h3>
@@ -177,7 +162,7 @@ export function PaymentTxIdsTable({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between pt-4">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
           Payment Transaction IDs
         </h3>

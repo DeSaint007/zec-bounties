@@ -13,7 +13,12 @@ import {
   ShieldCheck,
   User,
   Loader2,
-  BarChart3, // ← Added for Dashboard icon
+  BarChart3,
+  BookOpen,
+  ChevronDown,
+  Check,
+  Target,
+  Users,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -43,72 +48,121 @@ import { useState } from "react";
 import { WalletTopupModal } from "@/components/wallet-topup-modal";
 import { useBounty } from "@/lib/bounty-context";
 import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { ThemePicker } from "@/components/theme/theme-picker";
 
 // ── Role toggle button ────────────────────────────────────────────────────────
+const ROLE_OPTIONS = [
+  { value: "ADMIN", label: "Admin", icon: ShieldCheck, redirect: "/admin" },
+  { value: "CLIENT", label: "Client", icon: User, redirect: "/home" },
+  { value: "HUNTER", label: "Hunter", icon: Target, redirect: "/home" },
+  { value: "TEAM", label: "Team", icon: Users, redirect: "/home" },
+] as const;
+
 function RoleToggleButton({ compact = false }: { compact?: boolean }) {
   const { currentUser, switchRole, isSwitchingRole } = useBounty();
   const router = useRouter();
   if (!currentUser?.isRobin) return null;
 
-  const isAdmin = currentUser.role === "ADMIN";
+  const current = ROLE_OPTIONS.find((r) => r.value === currentUser.role);
+  const CurrentIcon = current?.icon ?? ShieldCheck;
 
-  const handleSwitch = async () => {
-    await switchRole();
-    router.push(isAdmin ? "/home" : "/admin");
+  const handleSelect = async (role: (typeof ROLE_OPTIONS)[number]) => {
+    if (role.value === currentUser.role || isSwitchingRole) return;
+    await switchRole(role.value);
+    router.push(role.redirect);
   };
 
   if (compact) {
     return (
-      <Button
-        variant="outline"
-        className="gap-2 justify-start"
-        onClick={handleSwitch}
-        disabled={isSwitchingRole}
-      >
-        {isSwitchingRole ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : isAdmin ? (
-          <User className="h-4 w-4" />
-        ) : (
-          <ShieldCheck className="h-4 w-4" />
-        )}
-        {isSwitchingRole
-          ? "Switching..."
-          : isAdmin
-            ? "Switch to Client"
-            : "Switch to Admin"}
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            className="gap-2 justify-start"
+            disabled={isSwitchingRole}
+          >
+            {isSwitchingRole ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CurrentIcon className="h-4 w-4" />
+            )}
+            {isSwitchingRole
+              ? "Switching..."
+              : `Role: ${current?.label ?? currentUser.role}`}
+            <ChevronDown className="h-3.5 w-3.5 ml-auto opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-48">
+          <DropdownMenuLabel>Switch role</DropdownMenuLabel>
+          {ROLE_OPTIONS.map((role) => {
+            const Icon = role.icon;
+            const isActive = role.value === currentUser.role;
+            return (
+              <DropdownMenuItem
+                key={role.value}
+                className="gap-2"
+                onClick={() => handleSelect(role)}
+                disabled={isActive}
+              >
+                <Icon className="h-4 w-4" />
+                {role.label}
+                {isActive && <Check className="h-3.5 w-3.5 ml-auto" />}
+              </DropdownMenuItem>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5 h-8 text-xs font-medium border-dashed"
-            onClick={handleSwitch}
-            disabled={isSwitchingRole}
-          >
-            {isSwitchingRole ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : isAdmin ? (
-              <User className="h-3.5 w-3.5" />
-            ) : (
-              <ShieldCheck className="h-3.5 w-3.5" />
-            )}
-            <span className="hidden xl:inline">
-              {isSwitchingRole ? "..." : isAdmin ? "Client" : "Admin"}
-            </span>
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom" className="text-xs">
-          {isAdmin ? "Switch to Client view" : "Switch to Admin view"}
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-8 text-xs font-medium border-dashed"
+              disabled={isSwitchingRole}
+            >
+              {isSwitchingRole ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <CurrentIcon className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden xl:inline">
+                {isSwitchingRole ? "..." : (current?.label ?? currentUser.role)}
+              </span>
+              <ChevronDown className="h-3 w-3 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuLabel>Switch role</DropdownMenuLabel>
+            {ROLE_OPTIONS.map((role) => {
+              const Icon = role.icon;
+              const isActive = role.value === currentUser.role;
+              return (
+                <DropdownMenuItem
+                  key={role.value}
+                  className="gap-2"
+                  onClick={() => handleSelect(role)}
+                  disabled={isActive}
+                >
+                  <Icon className="h-4 w-4" />
+                  {role.label}
+                  {isActive && <Check className="h-3.5 w-3.5 ml-auto" />}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="text-xs">
+        Switch role
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -140,7 +194,7 @@ export function Navbar({
               className="transition-colors hover:text-primary"
             >
               <img
-                src="ZecHubBlue.png"
+                src="/ZecHubBlue.png"
                 alt="ZecHubBlue.png"
                 style={{ height: "3rem" }}
               />
@@ -150,6 +204,17 @@ export function Navbar({
               className="transition-colors hover:text-primary"
             >
               <span className="hidden sm:inline">ZEC Bounties</span>
+            </Link>
+          </div>
+
+          {/* Docs — public */}
+          <div className="hidden xl:flex items-center space-x-5 text-sm font-medium mr-4">
+            <Link
+              href="/docs"
+              className="flex items-center gap-1.5 transition-colors hover:text-primary"
+            >
+              <BookOpen className="h-4 w-4" />
+              Docs
             </Link>
           </div>
 
@@ -227,6 +292,8 @@ export function Navbar({
               <span className="sr-only">Toggle theme</span>
             </Button>
 
+            <ThemePicker />
+
             {currentUser && (
               <Button variant="ghost" size="icon" className="h-9 w-9">
                 <Bell className="h-4 w-4" />
@@ -276,7 +343,7 @@ export function Navbar({
           </div>
 
           {/* Mobile Right Side */}
-          <div className="flex xl:hidden items-center gap-2 ml-auto">
+          <div className="flex xl:hidden items-center gap-1 ml-auto">
             <Button
               variant="ghost"
               size="icon"
@@ -287,6 +354,8 @@ export function Navbar({
               <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
               <span className="sr-only">Toggle theme</span>
             </Button>
+
+            <ThemePicker />
 
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -310,6 +379,15 @@ export function Navbar({
                       className="pl-8 bg-muted/50 border-none focus-visible:ring-1"
                     />
                   </div>
+
+                  <Link
+                    href="/docs"
+                    className="flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-md hover:bg-accent transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    Docs
+                  </Link>
 
                   {!currentUser && (
                     <>

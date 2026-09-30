@@ -1,4 +1,4 @@
-export type UserRole = "ADMIN" | "CLIENT";
+export type UserRole = "ADMIN" | "CLIENT" | "TEAM" | "HUNTER";
 
 export type BountyStatus =
   | "TO_DO"
@@ -21,6 +21,99 @@ export interface User {
   isRobin: Boolean;
   emailNotifications?: boolean;
   badges?: string[];
+  discordUsername?: string;
+  discordGlobalName?: string;
+}
+
+/** Privacy-first profile visibility. Missing keys treated as false except avatar/displayName. */
+export interface ProfileVisibility {
+  showAvatar?: boolean;
+  showDisplayName?: boolean;
+  showBio?: boolean;
+  showBadges?: boolean;
+  showCompleted?: boolean;
+  showCreated?: boolean;
+  showEarnings?: boolean;
+  showCompletionRate?: boolean;
+  showAddressType?: boolean;
+  showMemberSince?: boolean;
+  showRecentBounties?: boolean;
+  showRole?: boolean;
+  showGithub?: boolean;
+}
+
+export type ProfileChain = "MAIN" | "TEST";
+
+export interface ProfileChainStats {
+  completed: number;
+  created: number;
+  submitted: number;
+  totalEarned: number;
+  completionRate: number | null;
+  recentCompleted?: PublicUserProfile["recentCompleted"];
+  recentCreated?: PublicUserProfile["recentCreated"];
+}
+
+export interface PublicUserTeam {
+  id: string;
+  name: string;
+  logo?: string | null;
+  isVerified?: boolean;
+  memberRole: string;
+}
+
+export interface PublicUserProfile {
+  id: string;
+  visibility: Required<ProfileVisibility>;
+  isOwner?: boolean;
+  isAdminViewer?: boolean;
+  displayName?: string;
+  nickname?: string | null;
+  name?: string;
+  avatar?: string | null;
+  bio?: string | null;
+  badges?: string[];
+  role?: UserRole;
+  teams?: PublicUserTeam[];
+  statsByChain?: Record<ProfileChain, ProfileChainStats>;
+  memberSince?: string | Date;
+  githubId?: string;
+  githubUsername?: string;
+  completed?: number;
+  submitted?: number;
+  created?: number;
+  totalEarned?: number;
+  completionRate?: number | null;
+  addressType?: string;
+  hasUnifiedAddress?: boolean;
+  hasShieldedAddress?: boolean;
+  recentCompleted?: Array<{
+    id: string;
+    title: string;
+    bountyAmount: number;
+    status: string;
+    chain: string;
+    paidAt?: string | null;
+    dateCreated: string;
+  }>;
+  recentCreated?: Array<{
+    id: string;
+    title: string;
+    bountyAmount: number;
+    status: string;
+    isApproved?: boolean;
+    chain: string;
+    dateCreated: string;
+  }>;
+  profileVisibility?: Required<ProfileVisibility>;
+  _private?: {
+    completed: number;
+    created: number;
+    submitted: number;
+    totalEarned: number;
+    completionRate: number | null;
+    byChain?: Record<ProfileChain, ProfileChainStats>;
+  };
 }
 
 export interface BountyCategory {
@@ -36,6 +129,7 @@ export interface BountyApplication {
   status: string;
   appliedAt: Date;
   applicantUser?: User; // Populated user data
+  bounty?: { id: string; title: string };
 }
 
 export interface Bounty {
@@ -50,11 +144,15 @@ export interface Bounty {
   status: BountyStatus;
   isApproved: boolean;
   isPaid: boolean;
+  isPrivate: boolean;
   paymentAuthorized: boolean;
   paymentScheduled?: PaymentSchedule;
   paymentBatchId?: string;
   paidAt?: Date;
   paymentTxId?: string;
+  // True while a send is in flight or its outcome is unknown — the bounty is
+  // locked out of the payable set server-side until it settles.
+  paymentInFlight?: boolean;
   createdByUser?: User; // Populated user data
   assigneeUser?: User; // Populated user data
   applications?: BountyApplication[];
@@ -63,6 +161,33 @@ export interface Bounty {
   difficulty: "Easy" | "Medium" | "Hard";
   chain: "MAIN" | "TEST";
   assignees?: BountyAssignee[];
+  teamId?: string | null;
+  team?: { id: string; name: string; logo?: string | null } | null;
+}
+
+// One row per bounty per payout attempt, from /api/transactions/records.
+// PENDING/UNKNOWN rows are unsettled sends that need manual resolution.
+export interface PaymentRecord {
+  id: string;
+  bountyId: string;
+  txid: string | null;
+  amountZat: number;
+  toAddress: string;
+  memo: string;
+  chain: "MAIN" | "TEST";
+  status: "PENDING" | "BROADCAST" | "FAILED" | "UNKNOWN";
+  batchKey: string;
+  initiatedBy: string;
+  walletAccount: string;
+  errorDetail?: string | null;
+  createdAt: string;
+  settledAt?: string | null;
+  bounty?: {
+    id: string;
+    title: string;
+    chain: "MAIN" | "TEST";
+    assigneeUser?: { id: string; name: string; nickname?: string | null };
+  };
 }
 
 export interface BountyFormData {
@@ -121,6 +246,7 @@ export interface WorkSubmission {
   status: "pending" | "approved" | "rejected" | "needs_revision";
   submitterUser?: User; // Populated user data
   reviewerUser?: User; // Populated user data
+  bounty?: { id: string; title: string };
 }
 
 export interface BountyAssignee {
@@ -167,10 +293,29 @@ export interface Team {
   id: string;
   name: string;
   description?: string;
+  twitterUrl: string | null;
+  discordUrl: string | null;
+  additionalLinks: string[];
+  isVerified: boolean;
   createdAt: string;
   updatedAt: string;
   members: TeamMember[];
   wallet?: TeamWallet | null;
+  logo?: string | null;
+  banner?: string | null;
+  isPrivate: boolean;
+}
+
+export interface TeamVerificationStatus {
+  verificationCount: number;
+  requiredVerifications: number;
+  isVerified: boolean;
+  verifiedByMe: boolean;
+  verifiers: Array<{
+    adminUserId: string;
+    verifiedAt: string;
+    admin: { id: string; name: string; nickname?: string; avatar?: string };
+  }>;
 }
 
 export interface RecoveryData {
@@ -203,9 +348,12 @@ export type Notice = {
 };
 
 export type Balance = {
-  confirmed_orchard_balance: number;
-  unconfirmed_orchard_balance: number;
-  total_orchard_balance: number;
+  confirmed_ironwood_balance?: number;
+  unconfirmed_ironwood_balance?: number;
+  total_ironwood_balance?: number;
+  confirmed_orchard_balance?: number;
+  unconfirmed_orchard_balance?: number;
+  total_orchard_balance?: number;
   confirmed_sapling_balance: number;
   unconfirmed_sapling_balance: number;
   total_sapling_balance: number;
@@ -245,6 +393,12 @@ export interface TopContributor extends User {
   completed: number;
   totalEarned: number;
   addressType?: string;
+  receivers?: {
+    ironwood?: boolean | undefined;
+    sapling?: boolean | undefined;
+    transparent?: boolean | undefined;
+  };
+  showEarnings: boolean;
 }
 
 export interface ContributorsOverTime {
@@ -257,6 +411,48 @@ export type BountyTypesOverTime = {
   [category: string]: string | number;
 };
 
+export interface Community {
+  id: string;
+  name: string;
+  description: string | null;
+  logo?: string | null;
+  memberCount: number;
+}
+
+export interface TeamFavorite {
+  id: string;
+  userId: string;
+  teamId: string;
+  createdAt: string;
+  user: {
+    id: string;
+    name: string;
+    nickname?: string | null;
+    email?: string | null;
+    avatar?: string | null;
+  };
+}
+
+export interface SyncStatus {
+  sync_id?: number;
+  in_progress?: boolean;
+  synced_blocks?: number;
+  total_blocks?: number;
+  last_synced_hash?: string;
+  sync_percent?: number;
+
+  percentage_session_blocks_scanned: number;
+  percentage_session_outputs_scanned: number;
+  percentage_total_blocks_scanned: number;
+  percentage_total_outputs_scanned: number;
+  scan_ranges: [];
+  session_blocks_scanned: number;
+  session_orchard_outputs_scanned: number;
+  session_sapling_outputs_scanned: number;
+  sync_start_height: number;
+  total_blocks_scanned: number;
+  total_orchard_outputs_scanned: number;
+  total_sapling_outputs_scanned: number;
 export interface LeaderboardEntry {
   id: string;
   name: string;
