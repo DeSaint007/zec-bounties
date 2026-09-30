@@ -27,6 +27,7 @@ import {
   Copy,
   Pencil,
   X,
+  Palette,
 } from "lucide-react";
 import { RxDiscordLogo } from "react-icons/rx";
 import { useState, useEffect } from "react";
@@ -161,6 +162,11 @@ export function BountyDetailModal({
       bounty.assignee === currentUser.id);
 
   const isSuggestedTask = bounty.createdByUser?.role === "HUNTER";
+
+  // Matches both "Design and Videos" and a slug like "design-and-videos"
+  const isDesignCategory =
+    bounty.categoryId?.toLowerCase().replace(/[^a-z]+/g, "-") ===
+    "design-and-videos";
 
   const canViewPrivate =
     !bounty.isPrivate ||
@@ -675,6 +681,25 @@ export function BountyDetailModal({
                 </p>
               )}
             </div>
+
+            {/* Brand guidelines highlight (Design and Videos only) */}
+            {isDesignCategory && (
+              <div className="flex items-start gap-2.5 p-3 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20">
+                <Palette className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                <p className="text-xs text-amber-800 dark:text-amber-200 leading-relaxed">
+                  Please follow the ZecHub brand guidelines to keep all design
+                  deliverables consistent. View the Brand Visual Guidelines{" "}
+                  <a
+                    href="https://zechub.wiki/visual-identity"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold underline hover:no-underline break-all"
+                  >
+                    here.
+                  </a>
+                </p>
+              </div>
+            )}
 
             {/* Submit Work */}
             {canSubmitWork && (
