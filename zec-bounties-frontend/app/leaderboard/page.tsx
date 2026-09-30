@@ -12,14 +12,26 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Target, Zap, Lock } from "lucide-react";
-import { useBounty } from "@/lib/bounty-context"; // adjust path as needed
+import { useBounty } from "@/lib/bounty-context";
+import { useZecPrice } from "@/hooks/useZecPrice";
 
 type TimeRange = "all" | "30d" | "90d";
 
 export default function LeaderboardPage() {
   const { currentUser, leaderboard, leaderboardLoading, fetchLeaderboard } =
     useBounty();
+  const { price: zecPrice } = useZecPrice();
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
+  const [showUsd, setShowUsd] = useState(true);
+
+  // Only oscillate once we actually have a price to convert with.
+  const canConvert = zecPrice !== null;
+  useEffect(() => {
+    if (!canConvert) return;
+    const id = setInterval(() => setShowUsd((v) => !v), 5000);
+    return () => clearInterval(id);
+  }, [canConvert]);
+  const usdActive = canConvert && showUsd;
 
   useEffect(() => {
     fetchLeaderboard({ timeRange, chain: "MAIN", limit: 25 });
@@ -30,8 +42,14 @@ export default function LeaderboardPage() {
 
   const myEntry = leaderboard.find(isMe);
 
-  const formatUsd = (n: number) =>
-    n.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  // `zec` is the raw ZEC amount; alternates with USD when a price is available.
+  const formatEarned = (zec: number) =>
+    usdActive
+      ? (zec * zecPrice!).toLocaleString("en-US", {
+          style: "currency",
+          currency: "USD",
+        })
+      : `${zec.toLocaleString(undefined, { maximumFractionDigits: 4 })} ZEC`;
 
   const displayNameFor = (entry: (typeof leaderboard)[number]) =>
     entry.nickname || entry.name;
@@ -158,7 +176,7 @@ export default function LeaderboardPage() {
                         <span>{entry.completed} Bounties</span>
                       </div>
                       <div className="text-2xl font-black text-primary">
-                        {formatUsd(entry.earned)}
+                        {formatEarned(entry.earned)}
                       </div>
                       <p className="text-[10px] uppercase tracking-tighter text-muted-foreground">
                         Total Earnings
@@ -231,9 +249,11 @@ export default function LeaderboardPage() {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="font-bold">{formatUsd(entry.earned)}</p>
+                          <p className="font-bold tabular-nums">
+                            {formatEarned(entry.earned)}
+                          </p>
                           <p className="text-[10px] text-muted-foreground font-mono">
-                            USD EQUIVALENT
+                            {usdActive ? "USD EQUIVALENT" : "ZEC"}
                           </p>
                         </div>
                       </div>
