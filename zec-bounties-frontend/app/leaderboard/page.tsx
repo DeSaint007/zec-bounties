@@ -13,25 +13,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Trophy, Target, Zap, Lock } from "lucide-react";
 import { useBounty } from "@/lib/bounty-context";
-import { useZecPrice } from "@/hooks/useZecPrice";
 
 type TimeRange = "all" | "30d" | "90d";
 
-export default function LeaderboardPage() {
+export default function AdminLeaderboardPage() {
   const { currentUser, leaderboard, leaderboardLoading, fetchLeaderboard } =
     useBounty();
-  const { price: zecPrice } = useZecPrice();
   const [timeRange, setTimeRange] = useState<TimeRange>("all");
-  const [showUsd, setShowUsd] = useState(true);
-
-  // Only oscillate once we actually have a price to convert with.
-  const canConvert = zecPrice !== null;
-  useEffect(() => {
-    if (!canConvert) return;
-    const id = setInterval(() => setShowUsd((v) => !v), 5000);
-    return () => clearInterval(id);
-  }, [canConvert]);
-  const usdActive = canConvert && showUsd;
 
   useEffect(() => {
     fetchLeaderboard({ timeRange, chain: "MAIN", limit: 25 });
@@ -44,12 +32,7 @@ export default function LeaderboardPage() {
 
   // `zec` is the raw ZEC amount; alternates with USD when a price is available.
   const formatEarned = (zec: number) =>
-    usdActive
-      ? (zec * zecPrice!).toLocaleString("en-US", {
-          style: "currency",
-          currency: "USD",
-        })
-      : `${zec.toLocaleString(undefined, { maximumFractionDigits: 4 })} ZEC`;
+    `${zec.toLocaleString(undefined, { maximumFractionDigits: 4 })} ZEC`;
 
   const displayNameFor = (entry: (typeof leaderboard)[number]) =>
     entry.nickname || entry.name;
@@ -288,7 +271,7 @@ export default function LeaderboardPage() {
                             {formatEarned(entry.earned)}
                           </p>
                           <p className="text-[10px] text-muted-foreground font-mono">
-                            {usdActive ? "USD EQUIVALENT" : "ZEC"}
+                            TOTAL EARNED
                           </p>
                         </div>
                       </div>
