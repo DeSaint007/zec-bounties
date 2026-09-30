@@ -54,6 +54,12 @@ export default function LeaderboardPage() {
   const displayNameFor = (entry: (typeof leaderboard)[number]) =>
     entry.nickname || entry.name;
 
+  // First 4 characters (Array.from keeps emoji/surrogate pairs intact).
+  const shortName = (name: string) =>
+    Array.from(name).length > 4
+      ? `${Array.from(name).slice(0, 4).join("")}…`
+      : name;
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <Navbar />
@@ -96,7 +102,10 @@ export default function LeaderboardPage() {
             <p className="mt-4 text-sm text-muted-foreground">
               You're ranked{" "}
               <span className="font-bold text-primary">#{myEntry.rank}</span>{" "}
-              with {myEntry.points.toLocaleString()} pts
+              <span className="hidden md:inline">
+                {" "}
+                with {myEntry.points.toLocaleString()} pts
+              </span>
             </p>
           ) : currentUser ? (
             <p className="mt-4 text-sm text-muted-foreground">
@@ -169,7 +178,19 @@ export default function LeaderboardPage() {
                           !mine ? "blur-sm select-none" : ""
                         }`}
                       >
-                        {mine ? displayNameFor(entry) : "Hidden Hunter"}
+                        {(() => {
+                          const full = mine
+                            ? displayNameFor(entry)
+                            : "Hidden Hunter";
+                          return (
+                            <>
+                              <span className="md:hidden">
+                                {shortName(full)}
+                              </span>
+                              <span className="hidden md:inline">{full}</span>
+                            </>
+                          );
+                        })()}
                       </h3>
                       <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground mb-4">
                         <Target className="h-3 w-3" />
@@ -224,13 +245,27 @@ export default function LeaderboardPage() {
                           />
                           <AvatarFallback>{"None"}</AvatarFallback>
                         </Avatar>
-                        <div className="flex-1">
+                        <div className="flex-1 min-w-0">
                           <p
                             className={`font-bold leading-none flex items-center gap-2 ${
                               !mine ? "blur-sm select-none" : ""
                             }`}
                           >
-                            {mine ? displayNameFor(entry) : "Hidden Hunter"}
+                            {(() => {
+                              const full = mine
+                                ? displayNameFor(entry)
+                                : "Hidden Hunter";
+                              return (
+                                <>
+                                  <span className="md:hidden">
+                                    {shortName(full)}
+                                  </span>
+                                  <span className="hidden md:inline">
+                                    {full}
+                                  </span>
+                                </>
+                              );
+                            })()}
                             {mine && (
                               <Badge className="text-[10px]" variant="outline">
                                 You
@@ -238,7 +273,7 @@ export default function LeaderboardPage() {
                             )}
                           </p>
                           <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                            <span className="flex items-center gap-1">
+                            <span className="hidden md:flex items-center gap-1">
                               <Zap className="h-3 w-3 text-primary" />{" "}
                               {entry.points} pts
                             </span>
@@ -248,7 +283,7 @@ export default function LeaderboardPage() {
                             </span>
                           </div>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <p className="font-bold tabular-nums">
                             {formatEarned(entry.earned)}
                           </p>
