@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Navbar } from "@/components/layout/navbar";
+import { AdminNavbar } from "@/components/layout/admin/navbar";
 import {
   Card,
   CardContent,
@@ -45,7 +45,7 @@ export default function AdminLeaderboardPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <Navbar />
+      <AdminNavbar isAdmin />
       <div className="imd:container mx-auto px-4 py-8 max-w-5xl">
         <div className="mb-12 text-center">
           <Badge
