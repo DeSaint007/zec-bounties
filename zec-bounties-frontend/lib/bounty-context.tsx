@@ -26,6 +26,7 @@ import type {
   TeamFavorite,
   TeamVerificationStatus,
   PaymentRecord,
+  LeaderboardEntry,
 } from "./types";
 import { backendUrl, backendWebSpocketUrl } from "./configENV";
 import { displayName } from "./displayName";
@@ -435,6 +436,14 @@ interface BountyContextType {
   favoriteTeamsLoading: boolean;
   fetchFavoriteTeams: () => Promise<void>;
   toggleFavoriteTeam: (teamId: string) => Promise<void>;
+
+  leaderboard: LeaderboardEntry[];
+  leaderboardLoading: boolean;
+  fetchLeaderboard: (params?: {
+    timeRange?: "all" | "30d" | "90d";
+    chain?: "MAIN" | "TEST" | "ALL";
+    limit?: number;
+  }) => Promise<void>;
 }
 
 const BountyContext = createContext<BountyContextType | undefined>(undefined);
@@ -556,6 +565,8 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
   >([]);
   const [unassignedBountiesLoading, setUnassignedBountiesLoading] =
     useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
   // Helper function to get auth headers
   const getAuthHeaders = () => {
@@ -663,6 +674,35 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
       );
     } finally {
       setRescanLoading(false);
+    }
+  };
+
+  const fetchLeaderboard = async (params?: {
+    timeRange?: "all" | "30d" | "90d";
+    chain?: "MAIN" | "TEST" | "ALL";
+    limit?: number;
+  }) => {
+    setLeaderboardLoading(true);
+    try {
+      const query = new URLSearchParams();
+      if (params?.timeRange) query.set("timeRange", params.timeRange);
+      if (params?.chain) query.set("chain", params.chain);
+      if (params?.limit) query.set("limit", String(params.limit));
+
+      const res = await fetch(
+        `${backendUrl}/api/leaderboard?${query.toString()}`,
+        { headers: getPublicHeaders() }, // public route, no auth required
+      );
+
+      if (!res.ok) throw new Error("Failed to fetch leaderboard");
+
+      const data = await res.json();
+      setLeaderboard(data);
+    } catch (error) {
+      console.error("Failed to fetch leaderboard:", error);
+      setLeaderboard([]);
+    } finally {
+      setLeaderboardLoading(false);
     }
   };
 
@@ -4011,6 +4051,9 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         authorizeTeamDuePayment,
         fetchTeamPaymentRecords,
         teamPaymentRecords,
+        leaderboard,
+        leaderboardLoading,
+        fetchLeaderboard,
       }}
     >
       {children}
