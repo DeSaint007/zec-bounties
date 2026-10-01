@@ -3,7 +3,12 @@ const axios = require("axios");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const prisma = require("../prisma/client");
-const { authenticate, isAdmin, signSessionToken, loadAuthUser } = require("../middleware/auth");
+const {
+  authenticate,
+  isAdmin,
+  signSessionToken,
+  loadAuthUser,
+} = require("../middleware/auth");
 const { verifyZaddress, verifyUaddress } = require("../helpers/db-query.js");
 const {
   getLatestZcashParams,

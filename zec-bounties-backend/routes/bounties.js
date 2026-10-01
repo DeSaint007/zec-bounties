@@ -28,7 +28,6 @@ const {
   validateBountyUpdate,
   validateCategory,
 } = require("../helpers/validateBounty");
-const { userIdentityWhere, bountyInvolvesUserWhere } = require("../utils/userIdentity");
 const {
   USER_SELECT,
   USER_SELECT_PUBLIC,
@@ -47,6 +46,10 @@ const {
   requireOnboarded,
   getWeeklyBountyQuota,
 } = require("../utils/bountyHelpers");
+const {
+  userIdentityWhere,
+  bountyInvolvesUserWhere,
+} = require("../utils/userIdentity");
 
 // ─── Email settings ───────────────────────────────────────────────────────────
 const ENABLE_EMAILS_IN_DEV = false; // Set to true when you want to test emails
@@ -102,6 +105,8 @@ const invalidateSubmissions = async (bountyId, submittedBy) => {
     ...(submittedBy ? [`submissions:user:${submittedBy}`] : []),
   ]);
 };
+
+const HUNTER_EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 async function canManageBounty(bounty, user) {
   if (user.role === "ADMIN") return true;
@@ -551,7 +556,7 @@ router.get("/unassigned", authenticate, isAdmin, async (req, res) => {
         orderBy: { name: "asc" },
       }),
       prisma.bounty.findMany({
-        where: { teamId: null },
+        where: { teamId: null, createdByUser: { role: "ADMIN" } },
         select: {
           id: true,
           title: true,
@@ -603,7 +608,11 @@ router.patch(
       }
 
       const result = await prisma.bounty.updateMany({
-        where: { id: { in: bountyIds }, teamId: null },
+        where: {
+          id: { in: bountyIds },
+          teamId: null,
+          createdByUser: { role: "ADMIN" },
+        },
         data: { teamId: team.id, isPrivate: team.isPrivate },
       });
 
@@ -911,7 +920,7 @@ router.patch("/:id/approve", authenticate, isAdmin, async (req, res) => {
   try {
     const updated = await prisma.bounty.update({
       where: { id: req.params.id },
-      data: { approved: true },
+      data: { iApproved: true },
     });
     sendRealtimeUpdate("bounty_approved", updated, req.user.id);
     await invalidateBounty(req.params.id);
@@ -2397,7 +2406,7 @@ router.put("/:id", authenticate, async (req, res) => {
   try {
     const existing = await prisma.bounty.findUnique({
       where: { id: req.params.id },
-      select: { createdBy: true, teamId: true },
+      select: { createdBy: true, teamId: true, dateCreated: true },
     });
     if (!existing) return res.status(404).json({ error: "Bounty not found" });
 
@@ -2405,6 +2414,22 @@ router.put("/:id", authenticate, async (req, res) => {
       return res
         .status(403)
         .json({ error: "You do not have permission to edit this bounty" });
+    }
+
+    // HUNTERs (suggested-task creators) only get a 15-min self-correction
+    // window from creation. Global admins and team OWNER/ADMIN are exempt.
+
+    // HUNTERs: creator only, within 15 min of creation, no team-admin bypass.
+    if (req.user.role === "HUNTER") {
+      if (existing.createdBy !== req.user.id) {
+        return res
+          .status(403)
+          .json({ error: "Only the bounty creator can edit this bounty" });
+      }
+      const elapsed = Date.now() - new Date(existing.dateCreated).getTime();
+      if (elapsed > HUNTER_EDIT_WINDOW_MS) {
+        return res.status(400).json({ error: "Edit window has expired" });
+      }
     }
 
     // Only global admins may reassign a bounty's approval/status via this route
