@@ -19,11 +19,9 @@ const AUTH_USER_SELECT = {
 };
 
 function signSessionToken(user) {
-  return jwt.sign(
-    { id: user.id, role: user.role },
-    SECRET,
-    { expiresIn: "7d" },
-  );
+  return jwt.sign({ id: user.id, role: user.role }, SECRET, {
+    expiresIn: "7d",
+  });
 }
 
 async function loadAuthUser(id) {
