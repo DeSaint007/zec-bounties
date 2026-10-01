@@ -1,4 +1,3 @@
-// payment-authorization-modal.tsx
 "use client";
 
 import type React from "react";
@@ -65,10 +64,9 @@ export function PaymentAuthorizationModal({
       );
       setIsOpen(false);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Payment failed",
-        { duration: 10000 },
-      );
+      toast.error(error instanceof Error ? error.message : "Payment failed", {
+        duration: 10000,
+      });
     } finally {
       setIsProcessing(false);
     }
