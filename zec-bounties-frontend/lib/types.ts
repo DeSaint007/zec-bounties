@@ -464,4 +464,6 @@ export interface LeaderboardEntry {
   completed: number;
   points: number;
   rank: number;
+  badges?: string[];
+  role: UserRole;
 }
