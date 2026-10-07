@@ -40,6 +40,7 @@ import {
 } from "@/lib/displayName";
 import { ProfileLink } from "@/components/profile-link";
 import { ZecToUsd } from "./ZecToUsd";
+import { BountyChat } from "@/components/bounty-chat";
 
 interface BountyDetailModalProps {
   bounty: Bounty | null;
@@ -1279,6 +1280,16 @@ export function BountyDetailModal({
             </p>
           </section>
         )}
+
+        {currentUser &&
+          (currentUser.role === "ADMIN" || isAssignedToCurrentUser) && (
+            <BountyChat
+              bountyId={bounty.id}
+              active={open}
+              currentUserId={currentUser.id}
+              closed={bounty.status === "DONE"}
+            />
+          )}
       </DialogContent>
     </Dialog>
   );
