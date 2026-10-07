@@ -23,6 +23,7 @@ export interface User {
   badges?: string[];
   discordUsername?: string;
   discordGlobalName?: string;
+  canCreateTasks?: boolean;
 }
 
 /** Privacy-first profile visibility. Missing keys treated as false except avatar/displayName. */
