@@ -221,6 +221,7 @@ interface BountyContextType {
   nonAdminUsers: User[];
   usersLoading: boolean;
   fetchUsers: () => Promise<void>;
+  setUserTaskAccess: (userId: string, canCreateTasks: boolean) => Promise<void>;
   balance: Balance | undefined;
   fetchBalance: () => Promise<void>;
   address: string | undefined;
@@ -2667,6 +2668,16 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
             );
             break;
 
+          case "user_task_access_changed":
+            if (msg.payload.userId === currentUser?.id) {
+              setCurrentUser((prev) =>
+                prev
+                  ? { ...prev, canCreateTasks: msg.payload.canCreateTasks }
+                  : prev,
+              );
+            }
+            break;
+
           case "user_updated":
             if (msg.payload.id === currentUser?.id) {
               setCurrentUser((prev) =>
@@ -3574,6 +3585,44 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     await fetchUsers();
   };
 
+  const setUserTaskAccess = async (
+    userId: string,
+    canCreateTasks: boolean,
+  ): Promise<void> => {
+    if (!currentUser || currentUser.role !== "ADMIN") {
+      throw new Error("Unauthorized");
+    }
+
+    const prev = users.find((u) => u.id === userId)?.canCreateTasks ?? true;
+    const patch = (value: boolean) => {
+      const apply = (list: User[]) =>
+        list.map((u) =>
+          u.id === userId ? { ...u, canCreateTasks: value } : u,
+        );
+      setUsers(apply);
+      setNonAdminUsers(apply);
+    };
+
+    patch(canCreateTasks); // optimistic
+    try {
+      const res = await fetch(
+        `${backendUrl}/api/bounties/users/${userId}/task-access`,
+        {
+          method: "PATCH",
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ canCreateTasks }),
+        },
+      );
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Failed to update task access");
+      }
+    } catch (error) {
+      patch(prev); // rollback
+      throw error;
+    }
+  };
+
   const fetchUnassignedBounties = async () => {
     if (!currentUser || currentUser.role !== "ADMIN") return;
     setUnassignedBountiesLoading(true);
@@ -4056,6 +4105,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         leaderboard,
         leaderboardLoading,
         fetchLeaderboard,
+        setUserTaskAccess,
       }}
     >
       {children}
