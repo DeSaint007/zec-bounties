@@ -41,6 +41,7 @@ export interface ProfileVisibility {
   showRecentBounties?: boolean;
   showRole?: boolean;
   showGithub?: boolean;
+  showDiscord?: boolean;
 }
 
 export type ProfileChain = "MAIN" | "TEST";
@@ -79,6 +80,12 @@ export interface PublicUserProfile {
   statsByChain?: Record<ProfileChain, ProfileChainStats>;
   memberSince?: string | Date;
   githubId?: string;
+  discord?: {
+    id: string;
+    username: string | null;
+    globalName: string | null;
+    connectedAt?: string | null;
+  };
   githubUsername?: string;
   completed?: number;
   submitted?: number;
