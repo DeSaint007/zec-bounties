@@ -12,13 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import {
-  Loader2,
-  Lock,
-  Github,
-  ArrowLeft,
-  Settings,
-} from "lucide-react";
+import { Loader2, Lock, Github, ArrowLeft, Settings } from "lucide-react";
+import { RxDiscordLogo } from "react-icons/rx";
 import { BadgeIcons } from "@/components/badges/badge-icons";
 import { UaReceiverIcons } from "@/components/address/ua-receiver-icons";
 import { fmt } from "@/lib/utils";
@@ -27,6 +22,23 @@ import {
   getAddressReceivers,
   isDecoderReady,
 } from "@/lib/decodeAddress";
+
+const ADMIN_FULL_VISIBILITY = {
+  showAvatar: true,
+  showDisplayName: true,
+  showBio: true,
+  showBadges: true,
+  showCompleted: true,
+  showCreated: true,
+  showEarnings: true,
+  showCompletionRate: true,
+  showAddressType: true,
+  showMemberSince: true,
+  showRecentBounties: true,
+  showRole: true,
+  showGithub: true,
+  showDiscord: true,
+} as NonNullable<PublicUserProfile["visibility"]>;
 
 function PrivatePlaceholder({ label }: { label: string }) {
   return (
@@ -52,6 +64,13 @@ export default function PublicUserProfilePage() {
     transparent?: boolean;
   } | null>(null);
   const [chain, setChain] = useState<ProfileChain>("MAIN");
+
+  const isOwn =
+    !!profile?.isOwner ||
+    !!(currentUser && profile && currentUser.id === profile.id);
+
+  const isAdminView = !!profile?.isAdminViewer && !isOwn;
+  const v = isAdminView ? ADMIN_FULL_VISIBILITY : profile?.visibility;
 
   // Load profile when user id/nickname changes
   useEffect(() => {
@@ -104,12 +123,10 @@ export default function PublicUserProfilePage() {
     let cancelled = false;
     setReceivers(null);
 
-    if (!profile?.visibility?.showAddressType) return;
+    if (!v?.showAddressType) return;
 
     const addr =
-      (profile as any).UA_address ||
-      (profile as any).z_address ||
-      null;
+      (profile as any).UA_address || (profile as any).z_address || null;
 
     if (!addr) {
       setReceivers({ ironwood: false, sapling: false, transparent: false });
@@ -140,13 +157,7 @@ export default function PublicUserProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [profile?.id, profile?.visibility?.showAddressType]);
-
-  const v = profile?.visibility;
-  const isOwn =
-    !!profile?.isOwner ||
-    !!(currentUser && profile && currentUser.id === profile.id);
-
+  }, [profile?.id, v?.showAddressType]);
 
   const chainStats = profile?.statsByChain?.[chain];
   const completed = chainStats?.completed ?? profile?.completed ?? 0;
@@ -245,7 +256,8 @@ export default function PublicUserProfilePage() {
                         {v?.showRole && profile.role && (
                           <Badge variant="secondary">{roleLabel}</Badge>
                         )}
-                        {profile.teams && profile.teams.length > 0 &&
+                        {profile.teams &&
+                          profile.teams.length > 0 &&
                           profile.teams.map((team) => (
                             <Link
                               key={team.id}
@@ -280,16 +292,65 @@ export default function PublicUserProfilePage() {
                         </p>
                       )}
 
-                      {v?.showGithub && (profile.githubUsername || profile.nickname) && (
-                        <a
-                          href={`https://github.com/${profile.githubUsername}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
-                        >
-                          <Github className="w-4 h-4" />
-                          GitHub
-                        </a>
+                      <div className="flex flex-col imd:flex-row gap-4 items-baseline">
+                        {v?.showGithub &&
+                          (profile.githubUsername || profile.nickname) && (
+                            <a
+                              href={`https://github.com/${profile.githubUsername}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                            >
+                              <Github className="w-4 h-4" />
+                              GitHub
+                            </a>
+                          )}
+
+                        {v?.showDiscord && profile.discord && (
+                          <div className="space-y-0.5">
+                            <a
+                              href={`https://discord.com/users/${profile.discord.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                            >
+                              <RxDiscordLogo className="w-4 h-4" />
+                              {profile.discord.globalName ||
+                                profile.discord.username ||
+                                "Discord"}
+                              {profile.discord.globalName &&
+                                profile.discord.username && (
+                                  <span className="text-muted-foreground">
+                                    @{profile.discord.username}
+                                  </span>
+                                )}
+                            </a>
+                            {/* {isAdminView && profile.discord.connectedAt && (
+                              <p className="text-xs text-muted-foreground">
+                                Discord linked{" "}
+                                {new Date(
+                                  profile.discord.connectedAt,
+                                ).toLocaleDateString(undefined, {
+                                  year: "numeric",
+                                  month: "short",
+                                  day: "numeric",
+                                })}
+                              </p>
+                            )} */}
+                          </div>
+                        )}
+                      </div>
+                      {isAdminView && profile?.discord?.connectedAt && (
+                        <p className="text-xs text-muted-foreground">
+                          Discord linked{" "}
+                          {new Date(
+                            profile.discord.connectedAt,
+                          ).toLocaleDateString(undefined, {
+                            year: "numeric",
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </p>
                       )}
 
                       {v?.showBadges && profile.badges ? (
@@ -301,15 +362,12 @@ export default function PublicUserProfilePage() {
                           />
                         </div>
                       ) : (
-                        !v?.showBadges && (
-                          <PrivatePlaceholder label="Badges" />
-                        )
+                        !v?.showBadges && <PrivatePlaceholder label="Badges" />
                       )}
                     </div>
                   </div>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">About</CardTitle>
@@ -330,7 +388,6 @@ export default function PublicUserProfilePage() {
                   )}
                 </CardContent>
               </Card>
-
               <div className="flex items-center justify-end">
                 <div className="inline-flex rounded-md border p-0.5">
                   <Button
@@ -353,8 +410,7 @@ export default function PublicUserProfilePage() {
                   </Button>
                 </div>
               </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 imd:grid-cols-4 gap-3">
                 <Card>
                   <CardContent className="pt-4 pb-4">
                     <p className="text-xs text-muted-foreground mb-1">
@@ -385,9 +441,7 @@ export default function PublicUserProfilePage() {
                 </Card>
                 <Card>
                   <CardContent className="pt-4 pb-4">
-                    <p className="text-xs text-muted-foreground mb-1">
-                      Earned
-                    </p>
+                    <p className="text-xs text-muted-foreground mb-1">Earned</p>
                     {v?.showEarnings ? (
                       <p className="text-2xl font-bold tabular-nums">
                         {fmt(totalEarned)} ZEC
@@ -404,9 +458,7 @@ export default function PublicUserProfilePage() {
                     </p>
                     {v?.showCompletionRate ? (
                       <p className="text-2xl font-bold tabular-nums">
-                        {completionRate != null
-                          ? `${completionRate}%`
-                          : "—"}
+                        {completionRate != null ? `${completionRate}%` : "—"}
                       </p>
                     ) : (
                       <PrivatePlaceholder label="Rate" />
@@ -414,7 +466,6 @@ export default function PublicUserProfilePage() {
                   </CardContent>
                 </Card>
               </div>
-
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Address type</CardTitle>
@@ -438,7 +489,6 @@ export default function PublicUserProfilePage() {
                   </p>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Recent activity</CardTitle>
@@ -459,7 +509,9 @@ export default function PublicUserProfilePage() {
                               >
                                 <span className="truncate">{b.title}</span>
                                 <span className="tabular-nums text-muted-foreground shrink-0">
-                                  {b.bountyAmount != null ? `${fmt(b.bountyAmount)} ZEC` : ""}
+                                  {b.bountyAmount != null
+                                    ? `${fmt(b.bountyAmount)} ZEC`
+                                    : ""}
                                 </span>
                               </li>
                             ))}
@@ -500,7 +552,6 @@ export default function PublicUserProfilePage() {
                   )}
                 </CardContent>
               </Card>
-
               {isOwn && (
                 <Card className="border-dashed">
                   <CardContent className="py-4 text-sm text-muted-foreground">
@@ -513,6 +564,13 @@ export default function PublicUserProfilePage() {
                       Manage visibility
                     </Link>
                     .
+                  </CardContent>
+                </Card>
+              )}
+              {isAdminView && (
+                <Card className="border-dashed">
+                  <CardContent className="py-4 text-sm text-muted-foreground">
+                    Admin view: fields this user has set to private are shown.
                   </CardContent>
                 </Card>
               )}
