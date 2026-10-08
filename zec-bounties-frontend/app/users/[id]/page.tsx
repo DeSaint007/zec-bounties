@@ -59,6 +59,15 @@ export default function PublicUserProfilePage() {
   const [staffView, setStaffView] = useState<StaffBountyView | null>(null);
   const [staffLoading, setStaffLoading] = useState(false);
   const [staffError, setStaffError] = useState<string | null>(null);
+  const [staffOpenOffset, setStaffOpenOffset] = useState(0);
+  const [staffHistoryOffset, setStaffHistoryOffset] = useState(0);
+  const staffKey = `${idOrNickname}:${chain}`;
+  const [staffKeySeen, setStaffKeySeen] = useState(staffKey);
+  if (staffKeySeen !== staffKey) {
+    setStaffKeySeen(staffKey);
+    setStaffOpenOffset(0);
+    setStaffHistoryOffset(0);
+  }
   const isAdmin = currentUser?.role === "ADMIN";
 
   // Load profile when user id/nickname changes
@@ -112,6 +121,8 @@ export default function PublicUserProfilePage() {
       setStaffView(null);
       setStaffError(null);
       setStaffLoading(false);
+      setStaffOpenOffset(0);
+      setStaffHistoryOffset(0);
       return;
     }
     if (chain !== "MAIN" && chain !== "TEST") return;
@@ -124,22 +135,36 @@ export default function PublicUserProfilePage() {
       try {
         const token = localStorage.getItem("authToken");
         if (!token) throw new Error("Admin session required");
+        const params = new URLSearchParams({ chain });
+        if (openOffset) params.set("openOffset", String(openOffset));
+        if (historyOffset) params.set("historyOffset", String(historyOffset));
         const res = await fetch(
-          `${backendUrl}/api/users/${encodeURIComponent(idOrNickname)}/staff-bounties?chain=${chain}`,
+          `${backendUrl}/api/users/${encodeURIComponent(idOrNickname)}/staff-bounties?${params}`,
           {
             headers: { Authorization: `Bearer ${token}` },
             cache: "no-store",
           },
         );
         if (res.status === 401 || res.status === 403) {
-          throw new Error("Staff view is admin only");
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Staff view is admin only");
         }
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error || "Failed to load staff view");
         }
         const data = (await res.json()) as StaffBountyView;
-        if (!cancelled) setStaffView(data);
+        if (!cancelled) {
+          setStaffView((prev) => {
+            const sameUser = prev?.userId === data.userId && prev?.chain === data.chain;
+            if (!sameUser || (!openOffset && !historyOffset)) return data;
+            return {
+              ...data,
+              open: openOffset ? [...prev.open, ...data.open] : data.open,
+              history: historyOffset ? [...prev.history, ...data.history] : data.history,
+            };
+          });
+        }
       } catch (e: any) {
         if (!cancelled) {
           setStaffView(null);
@@ -154,7 +179,17 @@ export default function PublicUserProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [isAdmin, idOrNickname, chain]);
+  }, [isAdmin, idOrNickname, chain, staffOpenOffset, staffHistoryOffset]);
+
+  const loadMoreStaff = (which: "open" | "history") => {
+    if (!staffView) return;
+    if (which === "open" && staffView.openNextOffset != null) {
+      setStaffOpenOffset(staffView.openNextOffset);
+    }
+    if (which === "history" && staffView.historyNextOffset != null) {
+      setStaffHistoryOffset(staffView.historyNextOffset);
+    }
+  };
 
   // Decode UA → receivers whenever profile changes (same as KPI dashboard)
   useEffect(() => {
@@ -373,6 +408,8 @@ export default function PublicUserProfilePage() {
                   loading={staffLoading}
                   error={staffError}
                   data={staffView}
+                  onLoadMoreOpen={() => loadMoreStaff("open")}
+                  onLoadMoreHistory={() => loadMoreStaff("history")}
                 />
               )}
 

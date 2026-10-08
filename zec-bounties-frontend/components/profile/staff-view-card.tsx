@@ -29,9 +29,13 @@ export type StaffBountyView = {
   userId: string;
   displayName: string;
   chain: "MAIN" | "TEST";
-  truncated: boolean;
+  limit: number;
   open: StaffBountyRow[];
+  openTotal: number;
+  openNextOffset: number | null;
   history: StaffBountyRow[];
+  historyTotal: number;
+  historyNextOffset: number | null;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -101,15 +105,19 @@ function Row({ row }: { row: StaffBountyRow }) {
 
 function List({
   title,
+  total,
   rows,
+  onLoadMore,
 }: {
   title: string;
+  total: number;
   rows: StaffBountyRow[];
+  onLoadMore?: () => void;
 }) {
   return (
     <div>
       <p className="text-xs font-medium text-muted-foreground mb-1">
-        {title} ({rows.length})
+        {title} ({rows.length}{total > rows.length ? ` of ${total}` : ""})
       </p>
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">None</p>
@@ -120,6 +128,15 @@ function List({
           ))}
         </ul>
       )}
+      {onLoadMore && (
+        <button
+          type="button"
+          onClick={onLoadMore}
+          className="mt-2 text-xs text-primary hover:underline"
+        >
+          Load more
+        </button>
+      )}
     </div>
   );
 }
@@ -129,11 +146,15 @@ export function StaffViewCard({
   loading,
   error,
   data,
+  onLoadMoreOpen,
+  onLoadMoreHistory,
 }: {
   chain: "MAIN" | "TEST";
   loading: boolean;
   error: string | null;
   data: StaffBountyView | null;
+  onLoadMoreOpen?: () => void;
+  onLoadMoreHistory?: () => void;
 }) {
   return (
     <Card className="border-amber-500/40">
@@ -160,13 +181,20 @@ export function StaffViewCard({
         {error && <p className="text-sm text-destructive">{error}</p>}
         {data && (
           <>
-            <List title="Open" rows={data.open} />
-            <List title="History" rows={data.history} />
-            {data.truncated && (
-              <p className="text-xs text-muted-foreground">
-                List capped at 100 rows per relation.
-              </p>
-            )}
+            <List
+              title="Open"
+              total={data.openTotal}
+              rows={data.open}
+              onLoadMore={data.openNextOffset == null ? undefined : onLoadMoreOpen}
+            />
+            <List
+              title="History"
+              total={data.historyTotal}
+              rows={data.history}
+              onLoadMore={
+                data.historyNextOffset == null ? undefined : onLoadMoreHistory
+              }
+            />
           </>
         )}
       </CardContent>

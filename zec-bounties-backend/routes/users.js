@@ -182,6 +182,11 @@ router.get("/search", authenticate, async (req, res) => {
  * Privacy-filtered public profile. Auth optional (owner/admin see more).
  */
 
+const {
+  resolveStaffUser,
+  buildStaffView,
+} = require("../utils/staffBounties");
+
 const STAFF_BOUNTY_SELECT = {
   id: true,
   title: true,
@@ -197,42 +202,16 @@ const STAFF_BOUNTY_SELECT = {
   team: { select: { name: true } },
 };
 
-const STAFF_OPEN_STATUSES = ["TO_DO", "IN_PROGRESS", "IN_REVIEW"];
-
-function staffBountyRow(bounty, relation, applicationStatus) {
-  return {
-    id: bounty.id,
-    title: bounty.title,
-    status: bounty.status,
-    chain: bounty.chain,
-    bountyAmount: bounty.bountyAmount,
-    isPrivate: bounty.isPrivate,
-    isPaid: bounty.isPaid,
-    isApproved: bounty.isApproved,
-    dateCreated: bounty.dateCreated,
-    completedAt: bounty.completedAt,
-    paidAt: bounty.paidAt,
-    teamName: bounty.team?.name || null,
-    relations: [relation],
-    applicationStatus: applicationStatus || null,
-  };
-}
-
-function mergeStaffRow(map, row) {
-  const existing = map.get(row.id);
-  if (!existing) {
-    map.set(row.id, row);
-    return;
-  }
-  for (const relation of row.relations) {
-    if (!existing.relations.includes(relation)) existing.relations.push(relation);
-  }
-  if (row.applicationStatus) existing.applicationStatus = row.applicationStatus;
+function staffOffset(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.floor(n);
 }
 
 /**
- * GET /api/users/:idOrNickname/staff-bounties?chain=MAIN|TEST
+ * GET /api/users/:idOrNickname/staff-bounties?chain=MAIN|TEST&openOffset=&historyOffset=
  * Admin only. Ignores profileVisibility. Does not return addresses, email, or github id.
+ * Name matches only when exactly one user has that name.
  */
 router.get(
   "/:idOrNickname/staff-bounties",
@@ -248,37 +227,32 @@ router.get(
         return res.status(400).json({ error: "chain must be MAIN or TEST" });
       }
 
-      const user = await prisma.user.findFirst({
-        where: { OR: [{ id: key }, { nickname: key }, { name: key }] },
-        select: { id: true, name: true, nickname: true },
-      });
-      if (!user) return res.status(404).json({ error: "User not found" });
+      const resolved = await resolveStaffUser(prisma, key);
+      if (!resolved.user) {
+        return res.status(resolved.status).json({ error: resolved.error });
+      }
+      const user = resolved.user;
 
-      const take = 100;
       const chainWhere = { chain: chainRaw };
       const [created, assigned, viaJoin, applications] = await Promise.all([
         prisma.bounty.findMany({
           where: { createdBy: user.id, ...chainWhere },
           orderBy: { dateCreated: "desc" },
-          take,
           select: STAFF_BOUNTY_SELECT,
         }),
         prisma.bounty.findMany({
           where: { assignee: user.id, ...chainWhere },
           orderBy: { dateCreated: "desc" },
-          take,
           select: STAFF_BOUNTY_SELECT,
         }),
         prisma.bounty.findMany({
           where: { assignees: { some: { userId: user.id } }, ...chainWhere },
           orderBy: { dateCreated: "desc" },
-          take,
           select: STAFF_BOUNTY_SELECT,
         }),
         prisma.bountyApplication.findMany({
           where: { applicantId: user.id, bounty: chainWhere },
           orderBy: { appliedAt: "desc" },
-          take,
           select: {
             status: true,
             bounty: { select: STAFF_BOUNTY_SELECT },
@@ -286,41 +260,12 @@ router.get(
         }),
       ]);
 
-      const map = new Map();
-      for (const bounty of created) mergeStaffRow(map, staffBountyRow(bounty, "created"));
-      for (const bounty of assigned) mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
-      for (const bounty of viaJoin) mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
-      for (const app of applications) {
-        if (!app.bounty) continue;
-        mergeStaffRow(map, staffBountyRow(app.bounty, "applied", app.status));
-      }
-
-      const open = [];
-      const history = [];
-      for (const row of map.values()) {
-        if (STAFF_OPEN_STATUSES.includes(row.status)) open.push(row);
-        else history.push(row);
-      }
-      const byRecent = (a, b) => {
-        const aKey = a.completedAt || a.paidAt || a.dateCreated || "";
-        const bKey = b.completedAt || b.paidAt || b.dateCreated || "";
-        return String(bKey).localeCompare(String(aKey));
-      };
-      open.sort(byRecent);
-      history.sort(byRecent);
-
-      return res.json({
-        userId: user.id,
-        displayName: user.nickname || user.name,
-        chain: chainRaw,
-        truncated:
-          created.length === take ||
-          assigned.length === take ||
-          viaJoin.length === take ||
-          applications.length === take,
-        open,
-        history,
-      });
+      return res.json(
+        buildStaffView(user, chainRaw, created, assigned, viaJoin, applications, {
+          openOffset: staffOffset(req.query.openOffset),
+          historyOffset: staffOffset(req.query.historyOffset),
+        }),
+      );
     } catch (err) {
       console.error("Staff bounty view error:", err);
       return res.status(500).json({ error: "Failed to load staff view" });
