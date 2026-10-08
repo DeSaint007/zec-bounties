@@ -155,8 +155,8 @@ export default function PublicUserProfilePage() {
         const token = localStorage.getItem("authToken");
         if (!token) throw new Error("Admin session required");
         const params = new URLSearchParams({ chain });
-        if (openOffset) params.set("openOffset", String(openOffset));
-        if (historyOffset) params.set("historyOffset", String(historyOffset));
+        if (staffOpenOffset) params.set("openOffset", String(staffOpenOffset));
+        if (staffHistoryOffset) params.set("historyOffset", String(staffHistoryOffset));
         const res = await fetch(
           `${backendUrl}/api/users/${encodeURIComponent(idOrNickname)}/staff-bounties?${params}`,
           {
@@ -176,11 +176,11 @@ export default function PublicUserProfilePage() {
         if (!cancelled) {
           setStaffView((prev) => {
             const sameUser = prev?.userId === data.userId && prev?.chain === data.chain;
-            if (!sameUser || (!openOffset && !historyOffset)) return data;
+            if (!sameUser || (!staffOpenOffset && !staffHistoryOffset)) return data;
             return {
               ...data,
-              open: openOffset ? [...prev.open, ...data.open] : data.open,
-              history: historyOffset ? [...prev.history, ...data.history] : data.history,
+              open: staffOpenOffset ? [...prev.open, ...data.open] : data.open,
+              history: staffHistoryOffset ? [...prev.history, ...data.history] : data.history,
             };
           });
         }
