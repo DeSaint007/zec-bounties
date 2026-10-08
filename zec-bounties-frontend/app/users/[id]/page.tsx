@@ -15,6 +15,10 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, Lock, Github, ArrowLeft, Settings } from "lucide-react";
 import { RxDiscordLogo } from "react-icons/rx";
 import { BadgeIcons } from "@/components/badges/badge-icons";
+import {
+  StaffBountyView,
+  StaffViewCard,
+} from "@/components/profile/staff-view-card";
 import { UaReceiverIcons } from "@/components/address/ua-receiver-icons";
 import { fmt } from "@/lib/utils";
 import {
@@ -64,6 +68,19 @@ export default function PublicUserProfilePage() {
     transparent?: boolean;
   } | null>(null);
   const [chain, setChain] = useState<ProfileChain>("MAIN");
+  const [staffView, setStaffView] = useState<StaffBountyView | null>(null);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const [staffOpenOffset, setStaffOpenOffset] = useState(0);
+  const [staffHistoryOffset, setStaffHistoryOffset] = useState(0);
+  const staffKey = `${idOrNickname}:${chain}`;
+  const [staffKeySeen, setStaffKeySeen] = useState(staffKey);
+  if (staffKeySeen !== staffKey) {
+    setStaffKeySeen(staffKey);
+    setStaffOpenOffset(0);
+    setStaffHistoryOffset(0);
+  }
+  const isAdmin = currentUser?.role === "ADMIN";
 
   const isOwn =
     !!profile?.isOwner ||
@@ -117,6 +134,81 @@ export default function PublicUserProfilePage() {
       cancelled = true;
     };
   }, [idOrNickname]);
+
+  useEffect(() => {
+    if (!isAdmin || !idOrNickname) {
+      setStaffView(null);
+      setStaffError(null);
+      setStaffLoading(false);
+      setStaffOpenOffset(0);
+      setStaffHistoryOffset(0);
+      return;
+    }
+    if (chain !== "MAIN" && chain !== "TEST") return;
+
+    let cancelled = false;
+    setStaffLoading(true);
+    setStaffError(null);
+
+    const load = async () => {
+      try {
+        const token = localStorage.getItem("authToken");
+        if (!token) throw new Error("Admin session required");
+        const params = new URLSearchParams({ chain });
+        if (openOffset) params.set("openOffset", String(openOffset));
+        if (historyOffset) params.set("historyOffset", String(historyOffset));
+        const res = await fetch(
+          `${backendUrl}/api/users/${encodeURIComponent(idOrNickname)}/staff-bounties?${params}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          },
+        );
+        if (res.status === 401 || res.status === 403) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Staff view is admin only");
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Failed to load staff view");
+        }
+        const data = (await res.json()) as StaffBountyView;
+        if (!cancelled) {
+          setStaffView((prev) => {
+            const sameUser = prev?.userId === data.userId && prev?.chain === data.chain;
+            if (!sameUser || (!openOffset && !historyOffset)) return data;
+            return {
+              ...data,
+              open: openOffset ? [...prev.open, ...data.open] : data.open,
+              history: historyOffset ? [...prev.history, ...data.history] : data.history,
+            };
+          });
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setStaffView(null);
+          setStaffError(e.message || "Failed to load staff view");
+        }
+      } finally {
+        if (!cancelled) setStaffLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, idOrNickname, chain, staffOpenOffset, staffHistoryOffset]);
+
+  const loadMoreStaff = (which: "open" | "history") => {
+    if (!staffView) return;
+    if (which === "open" && staffView.openNextOffset != null) {
+      setStaffOpenOffset(staffView.openNextOffset);
+    }
+    if (which === "history" && staffView.historyNextOffset != null) {
+      setStaffHistoryOffset(staffView.historyNextOffset);
+    }
+  };
 
   // Decode UA → receivers whenever profile changes (same as KPI dashboard)
   useEffect(() => {
@@ -368,6 +460,17 @@ export default function PublicUserProfilePage() {
                   </div>
                 </CardContent>
               </Card>
+{isAdmin && (
+                <StaffViewCard
+                  chain={chain === "TEST" ? "TEST" : "MAIN"}
+                  loading={staffLoading}
+                  error={staffError}
+                  data={staffView}
+                  onLoadMoreOpen={() => loadMoreStaff("open")}
+                  onLoadMoreHistory={() => loadMoreStaff("history")}
+                />
+              )}
+
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">About</CardTitle>
