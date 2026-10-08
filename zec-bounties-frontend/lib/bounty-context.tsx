@@ -692,7 +692,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
 
       const res = await fetch(
         `${backendUrl}/api/leaderboard?${query.toString()}`,
-        { headers: getPublicHeaders() }, // public route, no auth required
+        { headers: getAuthHeaders() },
       );
 
       if (!res.ok) throw new Error("Failed to fetch leaderboard");

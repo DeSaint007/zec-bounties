@@ -461,10 +461,10 @@ export interface LeaderboardEntry {
   name: string;
   nickname: string | null;
   avatar: string | null;
-  earned: number;
-  completed: number;
-  points: number;
+  earned: number | null;
+  completed: number | null;
+  points: number | null;
   rank: number;
   badges?: string[];
-  role: UserRole;
+  role?: UserRole;
 }
