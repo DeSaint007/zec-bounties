@@ -1577,6 +1577,20 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  // Merge a (possibly partial) bounty into every local list without refetching.
+  const mergeBounty = (partial: Partial<Bounty> & { id: string }) => {
+    const merge = (list: Bounty[]) =>
+      list.map((b) => (b.id === partial.id ? { ...b, ...partial } : b));
+    setBounties(merge);
+    setMyBounties(merge);
+    const teamId = partial.teamId;
+    if (teamId) {
+      setTeamBounties((prev) =>
+        prev[teamId] ? { ...prev, [teamId]: merge(prev[teamId]) } : prev,
+      );
+    }
+  };
+
   const addTeamBounty = (bounty: Bounty) => {
     if (!bounty.teamId) return;
     setTeamBounties((prev) => {
@@ -1738,6 +1752,13 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
   const rejectOtherSubmissions = async (submissionId: string) => {
     if (!currentUser) throw new Error("User not authenticated");
 
+    const bountyId_ =
+      allSubmissions.find((s) => s.id === submissionId)?.bountyId ??
+      Object.values(bountySubmissions)
+        .flat()
+        .find((s) => s.id === submissionId)?.bountyId;
+    if (!bountyId_) throw new Error("Submission not found locally");
+
     try {
       const res = await fetch(
         `${backendUrl}/api/bounties/submissions/${submissionId}/reject-others`,
@@ -1754,7 +1775,18 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      await fetchBounties();
+      const flip = (s: WorkSubmission) =>
+        s.bountyId === bountyId_ &&
+        s.id !== submissionId &&
+        s.status === "pending"
+          ? { ...s, status: "rejected" as const }
+          : s;
+      setAllSubmissions((p) => p.map(flip));
+      setBountySubmissions((p) => ({
+        ...p,
+        [bountyId_]: (p[bountyId_] || []).map(flip),
+      }));
+      await patchOneBounty(bountyId_);
     } catch (error) {
       console.error("Failed to reject other submissions:", error);
       throw error;
@@ -1975,6 +2007,20 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
   ) => {
     if (!currentUser) throw new Error("User not authenticated");
 
+    // optimistic: flip the submission status immediately
+    const setStatus = (s: WorkSubmission) =>
+      s.id === submissionId ? { ...s, status: reviewData.status } : s;
+    const prevSubs = submissions;
+    const prevAll = allSubmissions;
+    const prevByBounty = bountySubmissions;
+    setSubmissions((p) => p.map(setStatus));
+    setAllSubmissions((p) => p.map(setStatus));
+    setBountySubmissions((p) =>
+      Object.fromEntries(
+        Object.entries(p).map(([k, v]) => [k, v.map(setStatus)]),
+      ),
+    );
+
     try {
       const res = await fetch(
         `${backendUrl}/api/bounties/submissions/${submissionId}/review`,
@@ -1990,10 +2036,15 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         throw new Error(errorData.error || "Failed to review submission");
       }
 
-      await fetchBounties();
-
-      return await res.json();
+      const result = await res.json();
+      // reconcile with the server's version, no list reload
+      mergeBounty(result.bounty);
+      fetchTotalStats();
+      return result;
     } catch (error) {
+      setSubmissions(prevSubs);
+      setAllSubmissions(prevAll);
+      setBountySubmissions(prevByBounty);
       console.error("Failed to review submission:", error);
       throw error;
     }
@@ -2359,12 +2410,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
             break;
 
           case "bounty_updated":
-            setBounties((prev) =>
-              prev.map((bounty) =>
-                bounty.id === msg.payload.id ? msg.payload : bounty,
-              ),
-            );
-            patchTeamBounty(msg.payload);
+            mergeBounty(msg.payload);
             break;
 
           case "bounty_status_changed":
@@ -2461,7 +2507,6 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
             break;
 
           case "work_submitted":
-            fetchBounties();
             // Mirror application_created pattern
             if (msg.payload.submittedBy === currentUser?.id) {
               setSubmissions((prev) => [...prev, msg.payload]);
@@ -2494,7 +2539,6 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
                 (s) => (s.id === msg.payload.id ? msg.payload : s),
               ),
             }));
-            fetchBounties();
             setTeamActivityVersion((v) => v + 1);
             break;
 
@@ -2565,7 +2609,9 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
             break;
 
           case "bounty_assignees_updated":
-            fetchBounties();
+            if (!msg.payload.assignees && !msg.payload.removedUserId) {
+              patchOneBounty(msg.payload.bountyId);
+            }
             break;
 
           case "team_created":
@@ -3251,8 +3297,8 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
 
       const updated = await res.json();
 
-      // Re-fetch bounties so assignees array is fresh
-      await fetchBounties();
+      mergeBounty(updated); // PUT already returns assignees + team
+      fetchTotalStats();
     } catch (error) {
       console.error("Failed to approve bounty:", error);
       throw error;
