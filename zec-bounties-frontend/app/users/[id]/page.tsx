@@ -20,6 +20,10 @@ import {
   Settings,
 } from "lucide-react";
 import { BadgeIcons } from "@/components/badges/badge-icons";
+import {
+  StaffBountyView,
+  StaffViewCard,
+} from "@/components/profile/staff-view-card";
 import { UaReceiverIcons } from "@/components/address/ua-receiver-icons";
 import { fmt } from "@/lib/utils";
 import {
@@ -52,6 +56,10 @@ export default function PublicUserProfilePage() {
     transparent?: boolean;
   } | null>(null);
   const [chain, setChain] = useState<ProfileChain>("MAIN");
+  const [staffView, setStaffView] = useState<StaffBountyView | null>(null);
+  const [staffLoading, setStaffLoading] = useState(false);
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const isAdmin = currentUser?.role === "ADMIN";
 
   // Load profile when user id/nickname changes
   useEffect(() => {
@@ -98,6 +106,55 @@ export default function PublicUserProfilePage() {
       cancelled = true;
     };
   }, [idOrNickname]);
+
+  useEffect(() => {
+    if (!isAdmin || !idOrNickname) {
+      setStaffView(null);
+      setStaffError(null);
+      setStaffLoading(false);
+      return;
+    }
+    if (chain !== "MAIN" && chain !== "TEST") return;
+
+    let cancelled = false;
+    setStaffLoading(true);
+    setStaffError(null);
+
+    const load = async () => {
+      try {
+        const token = localStorage.getItem("authToken");
+        if (!token) throw new Error("Admin session required");
+        const res = await fetch(
+          `${backendUrl}/api/users/${encodeURIComponent(idOrNickname)}/staff-bounties?chain=${chain}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
+          },
+        );
+        if (res.status === 401 || res.status === 403) {
+          throw new Error("Staff view is admin only");
+        }
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Failed to load staff view");
+        }
+        const data = (await res.json()) as StaffBountyView;
+        if (!cancelled) setStaffView(data);
+      } catch (e: any) {
+        if (!cancelled) {
+          setStaffView(null);
+          setStaffError(e.message || "Failed to load staff view");
+        }
+      } finally {
+        if (!cancelled) setStaffLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, idOrNickname, chain]);
 
   // Decode UA → receivers whenever profile changes (same as KPI dashboard)
   useEffect(() => {
@@ -309,6 +366,15 @@ export default function PublicUserProfilePage() {
                   </div>
                 </CardContent>
               </Card>
+
+              {isAdmin && (
+                <StaffViewCard
+                  chain={chain === "TEST" ? "TEST" : "MAIN"}
+                  loading={staffLoading}
+                  error={staffError}
+                  data={staffView}
+                />
+              )}
 
               <Card>
                 <CardHeader className="pb-2">

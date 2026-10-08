@@ -118,6 +118,7 @@ These return 401 or 403 for a normal hunter. Do not build a public client agains
 - `/api/kpis` badge edits and admin KPI reports
 - `/api/transactions` balance, rescan, authorize-payment, mark-paid, pay
 - `/api/zcash/info` and `/api/zcash/params/all`
+- `GET /api/users/:idOrNickname/staff-bounties?chain=MAIN|TEST` — open bounties and history (created, assigned, applied) for any user. Requires `authenticate` + `isAdmin` (role loaded from the database). 401/403 otherwise. Response omits email, payout addresses, and github id, and ignores `profileVisibility`.
 
 ## Security to consider
 
