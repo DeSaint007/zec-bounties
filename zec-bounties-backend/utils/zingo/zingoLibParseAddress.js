@@ -2,10 +2,10 @@ const { execFile } = require("child_process");
 const { existsSync } = require("fs");
 const { promisify } = require("util");
 
-const execFileAsync = promisify(execFile);
+const { ADDRESS_PATTERN } = require("./replCommand");
 
-// Zcash addresses are base58 or bech32, so letters and digits only.
-const ADDRESS_PATTERN = /^[a-zA-Z0-9]{1,1000}$/;
+const execFileAsync = promisify(execFile);
+const PARSE_TIMEOUT_MS = 15000;
 
 async function executeZingoParseAddress(zaddress, params) {
   const command = "parse_address";
@@ -31,11 +31,12 @@ async function executeZingoParseAddress(zaddress, params) {
     zaddress,
   ];
 
-  console.log(args);
-
   try {
-    // 1️⃣ Run CLI and capture full output
-    const { stdout: rawOutput } = await execFileAsync(zingoPath, args);
+  // 1️⃣ Run CLI and capture full output
+  const { stdout: rawOutput } = await execFileAsync(zingoPath, args, {
+    encoding: "utf8",
+    timeout: PARSE_TIMEOUT_MS,
+  });
 
     // 2️⃣ Strip ANSI color codes
     const noAnsi = rawOutput.replace(/\u001b\[[0-9;]*m/g, "");
@@ -55,7 +56,6 @@ async function executeZingoParseAddress(zaddress, params) {
       .filter(Boolean);
 
     // 5️⃣ Return array if >1 objects, or object if just 1
-    console.log("resultz", parsed);
     if (parsed.length === 1) return parsed[0];
     return parsed;
   } catch (error) {
