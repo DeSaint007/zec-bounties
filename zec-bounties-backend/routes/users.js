@@ -21,6 +21,7 @@ const DEFAULT_VISIBILITY = {
   showRecentBounties: false,
   showRole: false,
   showGithub: false,
+  showDiscord: false,
 };
 
 const VISIBILITY_KEYS = Object.keys(DEFAULT_VISIBILITY);
@@ -182,10 +183,7 @@ router.get("/search", authenticate, async (req, res) => {
  * Privacy-filtered public profile. Auth optional (owner/admin see more).
  */
 
-const {
-  resolveStaffUser,
-  buildStaffView,
-} = require("../utils/staffBounties");
+const { resolveStaffUser, buildStaffView } = require("../utils/staffBounties");
 
 const STAFF_BOUNTY_SELECT = {
   id: true,
@@ -219,7 +217,9 @@ router.get(
   isAdmin,
   async (req, res) => {
     try {
-      const key = decodeURIComponent(String(req.params.idOrNickname || "")).trim();
+      const key = decodeURIComponent(
+        String(req.params.idOrNickname || ""),
+      ).trim();
       if (!key) return res.status(400).json({ error: "User id required" });
 
       const chainRaw = String(req.query.chain || "MAIN").toUpperCase();
@@ -261,10 +261,18 @@ router.get(
       ]);
 
       return res.json(
-        buildStaffView(user, chainRaw, created, assigned, viaJoin, applications, {
-          openOffset: staffOffset(req.query.openOffset),
-          historyOffset: staffOffset(req.query.historyOffset),
-        }),
+        buildStaffView(
+          user,
+          chainRaw,
+          created,
+          assigned,
+          viaJoin,
+          applications,
+          {
+            openOffset: staffOffset(req.query.openOffset),
+            historyOffset: staffOffset(req.query.historyOffset),
+          },
+        ),
       );
     } catch (err) {
       console.error("Staff bounty view error:", err);
@@ -295,6 +303,10 @@ router.get("/:idOrNickname/public", async (req, res) => {
         profileVisibility: true,
         createdAt: true,
         githubId: true,
+        discordUserId: true,
+        discordUsername: true,
+        discordGlobalName: true,
+        discordConnectedAt: true,
         UA_address: true,
         z_address: true,
         teamMembers: {
@@ -333,8 +345,11 @@ router.get("/:idOrNickname/public", async (req, res) => {
     }
 
     const visibility = mergeVisibility(user.profileVisibility);
+    // Admins see everything by default (human verification).
+    // Owners keep the public view unless they explicitly ask for ?full=1.
     const forceFull =
-      (isOwner || isAdmin) && String(req.query.full || "") === "1";
+      (isAdmin && !isOwner) ||
+      (isOwner && String(req.query.full || "") === "1");
 
     const [stats, teams] = await Promise.all([
       loadStats(user.id),
@@ -444,6 +459,16 @@ router.get("/:idOrNickname/public", async (req, res) => {
       // profile.githubId = user.githubId;
     }
 
+    if (show("showDiscord") && user.discordUserId) {
+      profile.discord = {
+        id: user.discordUserId,
+        username: user.discordUsername || null,
+        globalName: user.discordGlobalName || null,
+        // Useful for verification, so only sent in full view
+        ...(forceFull ? { connectedAt: user.discordConnectedAt } : {}),
+      };
+    }
+
     if (show("showCompleted")) {
       profile.completed = stats.MAIN.completed;
       profile.submitted = stats.MAIN.submitted;
@@ -489,6 +514,10 @@ router.get("/:idOrNickname/public", async (req, res) => {
         stats.MAIN.recentCreated,
         show("showEarnings"),
       );
+    }
+
+    if (isAdmin && !isOwner) {
+      profile.githubId = user.githubId || null;
     }
 
     if (isOwner) {

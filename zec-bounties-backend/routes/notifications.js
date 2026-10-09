@@ -40,7 +40,11 @@ router.patch("/read-all", authenticate, async (req, res) => {
 router.patch("/:notificationId/read", authenticate, async (req, res) => {
   try {
     const result = await prisma.inAppNotification.updateMany({
-      where: { id: req.params.notificationId, userId: req.user.id, readAt: null },
+      where: {
+        id: req.params.notificationId,
+        userId: req.user.id,
+        readAt: null,
+      },
       data: { readAt: new Date() },
     });
     return res.json({ success: true, updated: result.count > 0 });
