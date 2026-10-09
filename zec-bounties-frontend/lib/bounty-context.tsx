@@ -2606,29 +2606,6 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
             setAddress(msg.payload.addresses?.encoded_address);
             break;
 
-          case "bounty_payment_authorized":
-            setBounties((prev) =>
-              prev.map((bounty) =>
-                bounty.id === msg.payload.id ? msg.payload : bounty,
-              ),
-            );
-            break;
-
-          case "bounty_marked_paid":
-            setBounties((prev) =>
-              prev.map((bounty) =>
-                bounty.id === msg.payload.id ? msg.payload : bounty,
-              ),
-            );
-            patchTeamBounty(msg.payload);
-            break;
-
-          case "bounty_paid":
-            fetchBounties();
-            fetchTransactionHashes();
-            fetchBalance();
-            break;
-
           case "bounties_exported":
             fetchTotalStats();
             break;

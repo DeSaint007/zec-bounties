@@ -3,12 +3,6 @@ const prisma = require("../prisma/client");
 const router = express.Router();
 const { authenticate, isAdmin } = require("../middleware/auth");
 const executeZingoQuickSend = require("../utils/zingo/zingoLibQuickSend.js");
-const { findDueBounties } = require("../helpers/db-query.js");
-const {
-  buildPaymentList,
-  updateDueBounties,
-  storeTransactions,
-} = require("../helpers/db-query.js");
 const { initZcashOnce } = require("../zcash/init");
 const executeZingoCliTransactions = require("../utils/zingo/zingoLibTransactions.js");
 const executeZingoCliAddresses = require("../utils/zingo/zingoLibAddresses.js");
@@ -22,7 +16,6 @@ const executeZingoCliRecoveryInfo = require("../utils/zingo/zingoLibRecoveryInfo
 const executeZingoCliQuit = require("../utils/zingo/zingoLibQuit.js");
 const executeZingoCliBalance = require("../utils/zingo/zingoLibBalance.js");
 const { resolvePayingWallet } = require("../helpers/zcash/resolvePayingWallet");
-const { buildPaymentListGrouped } = require("../helpers/db-query");
 const { delCache, deleteCacheByPattern } = require("../utils/cache");
 const executeZingoCliInfo = require("../utils/zingo/zingoLibInfo");
 const { randomUUID } = require("crypto");
