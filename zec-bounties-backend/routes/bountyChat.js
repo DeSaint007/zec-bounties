@@ -27,10 +27,12 @@ async function getChatBounty(bountyId, user) {
     return { error: "You do not have access to this bounty chat", status: 403 };
   }
 
-  const assignedUserIds = new Set([
-    bounty.assignee,
-    ...bounty.assignees.map((assignee) => assignee.userId),
-  ].filter(Boolean));
+  const assignedUserIds = new Set(
+    [
+      bounty.assignee,
+      ...bounty.assignees.map((assignee) => assignee.userId),
+    ].filter(Boolean),
+  );
 
   return { bounty, assignedUserIds };
 }
@@ -38,7 +40,8 @@ async function getChatBounty(bountyId, user) {
 router.get("/:bountyId/chat", authenticate, async (req, res) => {
   try {
     const access = await getChatBounty(req.params.bountyId, req.user);
-    if (access.error) return res.status(access.status).json({ error: access.error });
+    if (access.error)
+      return res.status(access.status).json({ error: access.error });
 
     const messages = await prisma.bountyChat.findMany({
       where: { bountyId: access.bounty.id },
@@ -59,13 +62,17 @@ router.get("/:bountyId/chat", authenticate, async (req, res) => {
 router.post("/:bountyId/chat", authenticate, async (req, res) => {
   try {
     const access = await getChatBounty(req.params.bountyId, req.user);
-    if (access.error) return res.status(access.status).json({ error: access.error });
+    if (access.error)
+      return res.status(access.status).json({ error: access.error });
     if (access.bounty.status === "DONE") {
-      return res.status(410).json({ error: "Chat is closed for completed bounties" });
+      return res
+        .status(410)
+        .json({ error: "Chat is closed for completed bounties" });
     }
 
     const validated = validateChatMessage(req.body ?? {});
-    if (validated.error) return res.status(400).json({ error: validated.error });
+    if (validated.error)
+      return res.status(400).json({ error: validated.error });
 
     const recipientIds = new Set(access.assignedUserIds);
     const admins = await prisma.user.findMany({
@@ -76,7 +83,8 @@ router.post("/:bountyId/chat", authenticate, async (req, res) => {
     recipientIds.delete(req.user.id);
 
     const preview = validated.content || "Shared an image";
-    const notificationBody = preview.length > 160 ? `${preview.slice(0, 157)}...` : preview;
+    const notificationBody =
+      preview.length > 160 ? `${preview.slice(0, 157)}...` : preview;
 
     const message = await prisma.$transaction(async (tx) => {
       const savedMessage = await tx.bountyChat.create({
@@ -108,7 +116,9 @@ router.post("/:bountyId/chat", authenticate, async (req, res) => {
 
     for (const recipientId of recipientIds) {
       sendToUser(recipientId, "bounty_chat_message", message);
-      sendToUser(recipientId, "notification_new", { bountyId: access.bounty.id });
+      sendToUser(recipientId, "notification_new", {
+        bountyId: access.bounty.id,
+      });
     }
 
     return res.status(201).json({ message });

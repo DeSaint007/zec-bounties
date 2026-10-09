@@ -37,7 +37,8 @@ function mergeStaffRow(map, row) {
     return;
   }
   for (const relation of row.relations) {
-    if (!existing.relations.includes(relation)) existing.relations.push(relation);
+    if (!existing.relations.includes(relation))
+      existing.relations.push(relation);
   }
   if (row.applicationStatus) existing.applicationStatus = row.applicationStatus;
 }
@@ -78,11 +79,22 @@ async function resolveStaffUser(prisma, key) {
   return { status: 404, error: "User not found" };
 }
 
-function buildStaffView(user, chain, created, assigned, viaJoin, applications, offsets) {
+function buildStaffView(
+  user,
+  chain,
+  created,
+  assigned,
+  viaJoin,
+  applications,
+  offsets,
+) {
   const map = new Map();
-  for (const bounty of created) mergeStaffRow(map, staffBountyRow(bounty, "created"));
-  for (const bounty of assigned) mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
-  for (const bounty of viaJoin) mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
+  for (const bounty of created)
+    mergeStaffRow(map, staffBountyRow(bounty, "created"));
+  for (const bounty of assigned)
+    mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
+  for (const bounty of viaJoin)
+    mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
   for (const app of applications) {
     if (!app.bounty) continue;
     mergeStaffRow(map, staffBountyRow(app.bounty, "applied", app.status));
