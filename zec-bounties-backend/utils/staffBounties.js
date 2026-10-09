@@ -21,6 +21,7 @@ function staffBountyRow(bounty, relation, applicationStatus) {
     isPrivate: bounty.isPrivate,
     isPaid: bounty.isPaid,
     isApproved: bounty.isApproved,
+    exportedAt: bounty.exportedAt || null,
     dateCreated: bounty.dateCreated,
     completedAt: bounty.completedAt,
     paidAt: bounty.paidAt,
@@ -129,7 +130,7 @@ function buildStaffView(
     if (statusCounts[row.status] != null) statusCounts[row.status] += 1;
     if (
       row.status === "DONE" &&
-      row.isPaid &&
+      (row.isPaid || row.exportedAt) &&
       row.relations.includes("assigned")
     ) {
       zecEarned += Number(row.bountyAmount) || 0;
