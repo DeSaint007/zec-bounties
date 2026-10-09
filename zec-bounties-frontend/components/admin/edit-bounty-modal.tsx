@@ -23,6 +23,7 @@ import {
   Coins,
   FileText,
   UserPlus,
+  MessageSquare,
 } from "lucide-react";
 import {
   Select,
@@ -36,6 +37,7 @@ import { Bounty } from "@/lib/types";
 import { displayName } from "@/lib/displayName";
 import { toDateInputValue, parseDateInputValue } from "@/lib/utils";
 import { ZecToUsd } from "../ZecToUsd";
+import { BountyChat } from "@/components/bounty-chat";
 
 interface EditBountyModalProps {
   bounty: Bounty | null;
@@ -50,11 +52,11 @@ export function EditBountyModal({
   onOpenChange,
   defaultSection = "details",
 }: EditBountyModalProps) {
-  const { updateBounty, nonAdminUsers } = useBounty();
+  const { updateBounty, nonAdminUsers, currentUser } = useBounty();
   const [isSaving, setIsSaving] = useState(false);
-  const [activeSection, setActiveSection] = useState<"details" | "assignees">(
-    defaultSection,
-  );
+  const [activeSection, setActiveSection] = useState<
+    "details" | "assignees" | "chat"
+  >(defaultSection);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [bountyAmount, setBountyAmount] = useState("");
@@ -157,9 +159,10 @@ export function EditBountyModal({
         </DialogHeader>
 
         <div className="flex border-b shrink-0">
-          {(["details", "assignees"] as const).map((tab) => (
+          {(["details", "assignees", "chat"] as const).map((tab) => (
             <button
               key={tab}
+              type="button"
               onClick={() => setActiveSection(tab)}
               className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-colors capitalize ${
                 activeSection === tab
@@ -169,8 +172,10 @@ export function EditBountyModal({
             >
               {tab === "details" ? (
                 <FileText className="h-4 w-4" />
-              ) : (
+              ) : tab === "assignees" ? (
                 <Users className="h-4 w-4" />
+              ) : (
+                <MessageSquare className="h-4 w-4" />
               )}
               {tab}
               {tab === "assignees" && selectedUserIds.length > 0 && (
@@ -427,9 +432,19 @@ export function EditBountyModal({
               )}
             </div>
           )}
+
+          {activeSection === "chat" && currentUser && (
+            <BountyChat
+              bountyId={bounty.id}
+              active={open}
+              currentUserId={currentUser.id}
+              closed={bounty.status === "DONE"}
+            />
+          )}
         </div>
 
-        <div className="px-6 py-4 border-t flex flex-col gap-3 shrink-0 bg-muted/20">
+        {activeSection !== "chat" && (
+          <div className="px-6 py-4 border-t flex flex-col gap-3 shrink-0 bg-muted/20">
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input
               type="checkbox"
@@ -468,7 +483,8 @@ export function EditBountyModal({
               </Button>
             </div>
           </div>
-        </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

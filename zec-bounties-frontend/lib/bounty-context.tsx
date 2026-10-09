@@ -2399,6 +2399,23 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         const msg = JSON.parse(event.data);
 
         switch (msg.type) {
+          case "bounty_chat_message":
+            window.dispatchEvent(
+              new CustomEvent("bounty-chat-message", { detail: msg.payload }),
+            );
+            break;
+
+          case "bounty_chat_cleared":
+            window.dispatchEvent(
+              new CustomEvent("bounty-chat-cleared", { detail: msg.payload }),
+            );
+            window.dispatchEvent(new Event("bounty-notification"));
+            break;
+
+          case "notification_new":
+            window.dispatchEvent(new Event("bounty-notification"));
+            break;
+
           case "new_bounties":
             setBounties((prev) =>
               prev.some((b) => b.id === msg.payload.id)
