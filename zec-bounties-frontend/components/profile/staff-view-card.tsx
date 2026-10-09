@@ -33,6 +33,7 @@ export type StaffBountyView = {
   limit: number;
   bountyCount: number;
   zecEarned: number;
+  zecCompleted?: number;
   statusCounts: Record<string, number>;
   open: StaffBountyRow[];
   openTotal: number;
@@ -58,8 +59,26 @@ const RELATION_LABEL: Record<StaffRelation, string> = {
   applied: "Applied",
 };
 
+function amount(row: StaffBountyRow) {
+  return Number(row.bountyAmount) || 0;
+}
+
+function isAssigned(row: StaffBountyRow) {
+  return row.relations.includes("assigned");
+}
+
+function isEarned(row: StaffBountyRow) {
+  return row.status === "DONE" && row.isPaid && isAssigned(row);
+}
+
+function isCompleted(row: StaffBountyRow) {
+  return row.status === "DONE" && isAssigned(row);
+}
+
 function Row({ row }: { row: StaffBountyRow }) {
   const meta = STATUS_META[row.status];
+  const earned = isEarned(row);
+  const completed = isCompleted(row);
   return (
     <li className="flex flex-col gap-1 border-b border-border/60 py-2 last:border-0">
       <div className="flex items-start justify-between gap-3">
@@ -69,8 +88,15 @@ function Row({ row }: { row: StaffBountyRow }) {
         >
           {row.title}
         </Link>
-        <span className="text-xs tabular-nums text-muted-foreground shrink-0">
-          {fmt(Number(row.bountyAmount) || 0)} ZEC
+        <span className="text-right shrink-0">
+          <span className="block text-xs tabular-nums text-muted-foreground">
+            {fmt(amount(row))} ZEC
+          </span>
+          {earned ? (
+            <span className="block text-[10px] text-green-400">Earned</span>
+          ) : completed ? (
+            <span className="block text-[10px] text-yellow-400">Completed</span>
+          ) : null}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -164,13 +190,23 @@ export function StaffViewCard({
   const [status, setStatus] = useState<string>("ALL");
   const loaded = [...(data?.open || []), ...(data?.history || [])];
   const bountyCount = data?.bountyCount ?? (data ? data.openTotal + data.historyTotal : 0);
-  const zecEarned = data?.zecEarned ?? loaded.reduce((sum, row) => {
-    if (row.status === "DONE" && row.isPaid && row.relations.includes("assigned")) {
-      return sum + (Number(row.bountyAmount) || 0);
-    }
-    return sum;
-  }, 0);
-  const counts = data?.statusCounts || {};
+  const counted = loaded.reduce<Record<string, number>>((acc, row) => {
+    acc[row.status] = (acc[row.status] || 0) + 1;
+    return acc;
+  }, {});
+  const counts = { ...counted, ...(data?.statusCounts || {}) };
+  const apiCounts = data?.statusCounts || {};
+  if (STATUS_ORDER.every((key) => !apiCounts[key])) {
+    Object.assign(counts, counted);
+  }
+  const zecEarned = loaded.reduce(
+    (sum, row) => sum + (isEarned(row) ? amount(row) : 0),
+    0,
+  );
+  const zecCompleted = loaded.reduce(
+    (sum, row) => sum + (isCompleted(row) ? amount(row) : 0),
+    0,
+  );
   const visible = (rows: StaffBountyRow[]) =>
     status === "ALL" ? rows : rows.filter((row) => row.status === status);
 
@@ -192,7 +228,7 @@ export function StaffViewCard({
           <span className="flex items-center gap-3 text-xs text-muted-foreground">
             {data && (
               <span className="tabular-nums">
-                {bountyCount} · {fmt(zecEarned)} ZEC
+                {bountyCount} · {fmt(zecEarned)} earned
               </span>
             )}
             <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -215,7 +251,7 @@ export function StaffViewCard({
           {error && <p className="text-sm text-destructive">{error}</p>}
           {data && (
             <>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-md border border-border/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Bounties</p>
                   <p className="text-lg font-semibold tabular-nums">{bountyCount}</p>
@@ -223,7 +259,12 @@ export function StaffViewCard({
                 <div className="rounded-md border border-border/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ZEC earned</p>
                   <p className="text-lg font-semibold tabular-nums">{fmt(zecEarned)}</p>
-                  <p className="text-[10px] text-muted-foreground">Paid bounties assigned to this user</p>
+                  <p className="text-[10px] text-muted-foreground">Done, assigned, and paid</p>
+                </div>
+                <div className="rounded-md border border-border/70 px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ZEC completed</p>
+                  <p className="text-lg font-semibold tabular-nums">{fmt(zecCompleted)}</p>
+                  <p className="text-[10px] text-muted-foreground">Done and assigned, paid or not</p>
                 </div>
               </div>
               <div className="flex flex-wrap gap-2">
