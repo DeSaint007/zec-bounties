@@ -27,6 +27,7 @@ import type {
   TeamVerificationStatus,
   PaymentRecord,
   LeaderboardEntry,
+  BountyActivity,
 } from "./types";
 import { backendUrl, backendWebSpocketUrl } from "./configENV";
 import { displayName } from "./displayName";
@@ -180,6 +181,7 @@ interface BountyContextType {
   statusCounts: Record<string, number>;
   unpaidDoneCount: number;
   fetchBountyById: (id: string) => Promise<Bounty | null>;
+  fetchBountyActivity: (bountyId: string) => Promise<BountyActivity[]>;
   fetchTransactionHashes: () => Promise<void>;
   applyToBounty: (bountyId: string, message: string) => Promise<void>;
   editBounty: (id: string, data: Partial<BountyFormData>) => void;
@@ -2416,6 +2418,12 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
             window.dispatchEvent(new Event("bounty-notification"));
             break;
 
+          case "bounty_activity":
+            window.dispatchEvent(
+              new CustomEvent("bounty-activity", { detail: msg.payload }),
+            );
+            break;
+
           case "new_bounties":
             setBounties((prev) =>
               prev.some((b) => b.id === msg.payload.id)
@@ -3051,6 +3059,23 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Failed to fetch bounty:", error);
       return null;
+    }
+  };
+
+  const fetchBountyActivity = async (
+    bountyId: string,
+  ): Promise<BountyActivity[]> => {
+    if (!currentUser) return [];
+    try {
+      const res = await fetch(
+        `${backendUrl}/api/bounties/${bountyId}/activity`,
+        { headers: getAuthHeaders() },
+      );
+      if (!res.ok) throw new Error("Failed to fetch activity");
+      return await res.json();
+    } catch (error) {
+      console.error("Failed to fetch bounty activity:", error);
+      return [];
     }
   };
 
@@ -4046,6 +4071,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         statusCounts,
         unpaidDoneCount,
         fetchBountyById,
+        fetchBountyActivity,
         applyToBounty,
         editBounty,
         users,
