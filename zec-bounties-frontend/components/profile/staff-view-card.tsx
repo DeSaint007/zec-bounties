@@ -18,6 +18,7 @@ export type StaffBountyRow = {
   isPrivate: boolean;
   isPaid: boolean;
   isApproved: boolean;
+  exportedAt?: string | null;
   dateCreated: string;
   completedAt: string | null;
   paidAt: string | null;
@@ -69,7 +70,7 @@ function isAssigned(row: StaffBountyRow) {
 }
 
 function isEarned(row: StaffBountyRow) {
-  return row.status === "DONE" && row.isPaid && isAssigned(row);
+  return row.status === "DONE" && isAssigned(row) && (!!row.isPaid || !!row.exportedAt);
 }
 
 function isCompleted(row: StaffBountyRow) {
@@ -123,6 +124,11 @@ function Row({ row }: { row: StaffBountyRow }) {
         {row.isPaid && (
           <Badge variant="outline" className="text-[10px] px-1.5 py-0">
             Paid
+          </Badge>
+        )}
+        {row.exportedAt && (
+          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+            Exported
           </Badge>
         )}
         {row.teamName && (
@@ -271,7 +277,7 @@ export function StaffViewCard({
                 <div className="rounded-md border border-border/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ZEC earned</p>
                   <p className="text-lg font-semibold tabular-nums">{fmt(zecEarned)}</p>
-                  <p className="text-[10px] text-muted-foreground">Done, assigned, and paid</p>
+                  <p className="text-[10px] text-muted-foreground">Done, assigned, and paid or exported</p>
                 </div>
                 <div className="rounded-md border border-border/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ZEC completed</p>
