@@ -9,7 +9,7 @@ const FORBIDDEN_STAFF_KEYS = [
   "description",
 ];
 
-const STAFF_USER_SELECT = { id: true, name: true, nickname: true };
+const STAFF_USER_SELECT = { id: true, name: true, nickname: true, createdAt: true };
 
 function staffBountyRow(bounty, relation, applicationStatus) {
   return {
@@ -138,6 +138,7 @@ function buildStaffView(
   return {
     userId: user.id,
     displayName: user.nickname || user.name,
+    joinedAt: user.createdAt,
     chain,
     limit: STAFF_PAGE_LIMIT,
     bountyCount: all.length,
