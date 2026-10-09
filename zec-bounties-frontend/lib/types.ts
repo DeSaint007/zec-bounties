@@ -154,7 +154,6 @@ export interface Bounty {
   isPaid: boolean;
   isPrivate: boolean;
   paymentAuthorized: boolean;
-  paymentScheduled?: PaymentSchedule;
   paymentBatchId?: string;
   paidAt?: Date;
   paymentTxId?: string;
@@ -234,11 +233,6 @@ export interface ZcashParams {
     nickname?: string;
     email: string;
   };
-}
-
-export interface PaymentSchedule {
-  type: "instant" | "sunday_batch";
-  scheduledFor?: Date;
 }
 
 export interface WorkSubmission {
