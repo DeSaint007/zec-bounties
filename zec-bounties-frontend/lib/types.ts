@@ -475,3 +475,13 @@ export interface LeaderboardEntry {
   badges?: string[];
   role: UserRole;
 }
+
+export interface BountyActivity {
+  id: string;
+  bountyId: string;
+  actorId: string | null;
+  actor: Pick<User, "id" | "name" | "nickname" | "avatar"> | null;
+  type: string;
+  meta: Record<string, any> | null;
+  createdAt: string;
+}
