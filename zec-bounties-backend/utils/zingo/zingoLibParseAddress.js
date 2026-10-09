@@ -1,9 +1,18 @@
-const { execSync } = require("child_process");
+const { execFile } = require("child_process");
 const { existsSync } = require("fs");
+const { promisify } = require("util");
+
+const execFileAsync = promisify(execFile);
+
+// Zcash addresses are base58 or bech32, so letters and digits only.
+const ADDRESS_PATTERN = /^[a-zA-Z0-9]{1,1000}$/;
 
 async function executeZingoParseAddress(zaddress, params) {
   const command = "parse_address";
   if (!zaddress) throw new Error("No zaddress provided");
+  if (typeof zaddress !== "string" || !ADDRESS_PATTERN.test(zaddress)) {
+    return { status: "invalid" };
+  }
 
   const zingoPath = process.env.ZINGO_CLI;
 
@@ -12,20 +21,21 @@ async function executeZingoParseAddress(zaddress, params) {
   }
 
   const args = [
-    `--chain ${params.chain || "testnet"}`,
-    `--server ${params.serverUrl || "https://testnet.zec.rocks:443"}`,
-    `--data-dir "${params.dataDir || "/error"}"`,
+    "--chain",
+    params.chain || "testnet",
+    "--server",
+    params.serverUrl || "https://testnet.zec.rocks:443",
+    "--data-dir",
+    params.dataDir || "/error",
     command,
     zaddress,
-  ].join(" ");
+  ];
 
   console.log(args);
 
   try {
     // 1️⃣ Run CLI and capture full output
-    const rawOutput = execSync(`${zingoPath} ${args}`, {
-      stdio: "pipe",
-    }).toString();
+    const { stdout: rawOutput } = await execFileAsync(zingoPath, args);
 
     // 2️⃣ Strip ANSI color codes
     const noAnsi = rawOutput.replace(/\u001b\[[0-9;]*m/g, "");
