@@ -388,6 +388,7 @@ export function BountyDetailModal({
 
   const canSubmitWork =
     isAssignedToCurrentUser &&
+    bounty.isApproved &&
     !hasCurrentUserSubmitted &&
     !submissionsLoading &&
     bounty.status !== "TO_DO" &&
@@ -406,7 +407,7 @@ export function BountyDetailModal({
   const hasApplied = !!userApplication;
 
   const notice: Notice | null = (() => {
-    if (isAssignedToCurrentUser && bounty.status === "TO_DO") {
+    if (isAssignedToCurrentUser && (!bounty.isApproved || bounty.status === "TO_DO")) {
       return {
         type: "warning",
         title: "Bounty not yet approved",
