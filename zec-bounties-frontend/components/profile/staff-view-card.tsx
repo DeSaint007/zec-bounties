@@ -70,7 +70,7 @@ function Row({ row }: { row: StaffBountyRow }) {
           {row.title}
         </Link>
         <span className="text-xs tabular-nums text-muted-foreground shrink-0">
-          {fmt(row.bountyAmount)} ZEC
+          {fmt(Number(row.bountyAmount) || 0)} ZEC
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
@@ -162,6 +162,14 @@ export function StaffViewCard({
 }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<string>("ALL");
+  const loaded = [...(data?.open || []), ...(data?.history || [])];
+  const bountyCount = data?.bountyCount ?? (data ? data.openTotal + data.historyTotal : 0);
+  const zecEarned = data?.zecEarned ?? loaded.reduce((sum, row) => {
+    if (row.status === "DONE" && row.isPaid && row.relations.includes("assigned")) {
+      return sum + (Number(row.bountyAmount) || 0);
+    }
+    return sum;
+  }, 0);
   const counts = data?.statusCounts || {};
   const visible = (rows: StaffBountyRow[]) =>
     status === "ALL" ? rows : rows.filter((row) => row.status === status);
@@ -184,7 +192,7 @@ export function StaffViewCard({
           <span className="flex items-center gap-3 text-xs text-muted-foreground">
             {data && (
               <span className="tabular-nums">
-                {data.bountyCount} · {fmt(data.zecEarned)} ZEC
+                {bountyCount} · {fmt(zecEarned)} ZEC
               </span>
             )}
             <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
@@ -210,11 +218,11 @@ export function StaffViewCard({
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-md border border-border/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Bounties</p>
-                  <p className="text-lg font-semibold tabular-nums">{data.bountyCount}</p>
+                  <p className="text-lg font-semibold tabular-nums">{bountyCount}</p>
                 </div>
                 <div className="rounded-md border border-border/70 px-3 py-2">
                   <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ZEC earned</p>
-                  <p className="text-lg font-semibold tabular-nums">{fmt(data.zecEarned)}</p>
+                  <p className="text-lg font-semibold tabular-nums">{fmt(zecEarned)}</p>
                   <p className="text-[10px] text-muted-foreground">Paid bounties assigned to this user</p>
                 </div>
               </div>
@@ -228,7 +236,7 @@ export function StaffViewCard({
                       : "border-border text-muted-foreground"
                   }`}
                 >
-                  All {data.bountyCount}
+                  All {bountyCount}
                 </button>
                 {STATUS_ORDER.map((key) => {
                   const meta = STATUS_META[key];
