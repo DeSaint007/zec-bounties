@@ -33,6 +33,7 @@ export type StaffBountyView = {
   limit: number;
   bountyCount: number;
   zecEarned: number;
+  joinedAt?: string | null;
   zecCompleted?: number;
   statusCounts: Record<string, number>;
   open: StaffBountyRow[];
@@ -224,6 +225,17 @@ export function StaffViewCard({
             <Badge variant="outline" className="text-[10px] font-normal">
               Admin
             </Badge>
+            {data?.joinedAt && (
+              <span className="text-[10px] font-normal text-muted-foreground">
+                Joined {new Date(data.joinedAt).toLocaleString(undefined, {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
           </CardTitle>
           <span className="flex items-center gap-3 text-xs text-muted-foreground">
             {data && (
