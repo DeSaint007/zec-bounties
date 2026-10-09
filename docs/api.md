@@ -116,7 +116,7 @@ These return 401 or 403 for a normal hunter. Do not build a public client agains
 
 - Bounty approval, unassigned queue, full user export, payment export
 - `/api/kpis` badge edits and admin KPI reports
-- `/api/transactions` balance, rescan, authorize-payment, mark-paid, pay
+- `/api/transactions` balance, rescan, authorize-payment (claim-before-send). `mark-paid`, `pay`, and the batch/instant flag routes are removed
 - `/api/zcash/info` and `/api/zcash/params/all`
 - `GET /api/users/:idOrNickname/staff-bounties?chain=MAIN|TEST&openOffset=&historyOffset=` — open bounties and history (created, assigned, applied) for any user. Requires `authenticate` + `isAdmin` (role loaded from the database). 401 without a token. Non-admins get 403 JSON `{ error: "Admins only" }` before any user lookup. Lookup is id, then unique nickname, then name only when exactly one user has that name (409 if several). Pages of 100, with `openNextOffset` / `historyNextOffset` when more rows exist. Response omits email, payout addresses, github id, and description, and ignores `profileVisibility`.
 

@@ -9,7 +9,7 @@ const FORBIDDEN_STAFF_KEYS = [
   "description",
 ];
 
-const STAFF_USER_SELECT = { id: true, name: true, nickname: true };
+const STAFF_USER_SELECT = { id: true, name: true, nickname: true, createdAt: true };
 
 function staffBountyRow(bounty, relation, applicationStatus) {
   return {
@@ -21,6 +21,7 @@ function staffBountyRow(bounty, relation, applicationStatus) {
     isPrivate: bounty.isPrivate,
     isPaid: bounty.isPaid,
     isApproved: bounty.isApproved,
+    exportedAt: bounty.exportedAt || null,
     dateCreated: bounty.dateCreated,
     completedAt: bounty.completedAt,
     paidAt: bounty.paidAt,
@@ -37,7 +38,8 @@ function mergeStaffRow(map, row) {
     return;
   }
   for (const relation of row.relations) {
-    if (!existing.relations.includes(relation)) existing.relations.push(relation);
+    if (!existing.relations.includes(relation))
+      existing.relations.push(relation);
   }
   if (row.applicationStatus) existing.applicationStatus = row.applicationStatus;
 }
@@ -78,11 +80,22 @@ async function resolveStaffUser(prisma, key) {
   return { status: 404, error: "User not found" };
 }
 
-function buildStaffView(user, chain, created, assigned, viaJoin, applications, offsets) {
+function buildStaffView(
+  user,
+  chain,
+  created,
+  assigned,
+  viaJoin,
+  applications,
+  offsets,
+) {
   const map = new Map();
-  for (const bounty of created) mergeStaffRow(map, staffBountyRow(bounty, "created"));
-  for (const bounty of assigned) mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
-  for (const bounty of viaJoin) mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
+  for (const bounty of created)
+    mergeStaffRow(map, staffBountyRow(bounty, "created"));
+  for (const bounty of assigned)
+    mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
+  for (const bounty of viaJoin)
+    mergeStaffRow(map, staffBountyRow(bounty, "assigned"));
   for (const app of applications) {
     if (!app.bounty) continue;
     mergeStaffRow(map, staffBountyRow(app.bounty, "applied", app.status));
@@ -104,11 +117,34 @@ function buildStaffView(user, chain, created, assigned, viaJoin, applications, o
 
   const openPage = pageStaffRows(open, offsets.openOffset);
   const historyPage = pageStaffRows(history, offsets.historyOffset);
+  const all = [...open, ...history];
+  const statusCounts = {
+    TO_DO: 0,
+    IN_PROGRESS: 0,
+    IN_REVIEW: 0,
+    DONE: 0,
+    CANCELLED: 0,
+  };
+  let zecEarned = 0;
+  for (const row of all) {
+    if (statusCounts[row.status] != null) statusCounts[row.status] += 1;
+    if (
+      row.status === "DONE" &&
+      (row.isPaid || row.exportedAt) &&
+      row.relations.includes("assigned")
+    ) {
+      zecEarned += Number(row.bountyAmount) || 0;
+    }
+  }
   return {
     userId: user.id,
     displayName: user.nickname || user.name,
+    joinedAt: user.createdAt,
     chain,
     limit: STAFF_PAGE_LIMIT,
+    bountyCount: all.length,
+    zecEarned,
+    statusCounts,
     open: openPage.rows,
     openTotal: openPage.total,
     openNextOffset: openPage.nextOffset,

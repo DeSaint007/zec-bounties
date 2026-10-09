@@ -27,6 +27,7 @@ import type {
   TeamVerificationStatus,
   PaymentRecord,
   LeaderboardEntry,
+  BountyActivity,
 } from "./types";
 import { backendUrl, backendWebSpocketUrl } from "./configENV";
 import { displayName } from "./displayName";
@@ -180,6 +181,7 @@ interface BountyContextType {
   statusCounts: Record<string, number>;
   unpaidDoneCount: number;
   fetchBountyById: (id: string) => Promise<Bounty | null>;
+  fetchBountyActivity: (bountyId: string) => Promise<BountyActivity[]>;
   fetchTransactionHashes: () => Promise<void>;
   applyToBounty: (bountyId: string, message: string) => Promise<void>;
   editBounty: (id: string, data: Partial<BountyFormData>) => void;
@@ -2399,6 +2401,29 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         const msg = JSON.parse(event.data);
 
         switch (msg.type) {
+          case "bounty_chat_message":
+            window.dispatchEvent(
+              new CustomEvent("bounty-chat-message", { detail: msg.payload }),
+            );
+            break;
+
+          case "bounty_chat_cleared":
+            window.dispatchEvent(
+              new CustomEvent("bounty-chat-cleared", { detail: msg.payload }),
+            );
+            window.dispatchEvent(new Event("bounty-notification"));
+            break;
+
+          case "notification_new":
+            window.dispatchEvent(new Event("bounty-notification"));
+            break;
+
+          case "bounty_activity":
+            window.dispatchEvent(
+              new CustomEvent("bounty-activity", { detail: msg.payload }),
+            );
+            break;
+
           case "new_bounties":
             setBounties((prev) =>
               prev.some((b) => b.id === msg.payload.id)
@@ -2579,29 +2604,6 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
 
           case "addresses_fetched":
             setAddress(msg.payload.addresses?.encoded_address);
-            break;
-
-          case "bounty_payment_authorized":
-            setBounties((prev) =>
-              prev.map((bounty) =>
-                bounty.id === msg.payload.id ? msg.payload : bounty,
-              ),
-            );
-            break;
-
-          case "bounty_marked_paid":
-            setBounties((prev) =>
-              prev.map((bounty) =>
-                bounty.id === msg.payload.id ? msg.payload : bounty,
-              ),
-            );
-            patchTeamBounty(msg.payload);
-            break;
-
-          case "bounty_paid":
-            fetchBounties();
-            fetchTransactionHashes();
-            fetchBalance();
             break;
 
           case "bounties_exported":
@@ -3034,6 +3036,23 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error("Failed to fetch bounty:", error);
       return null;
+    }
+  };
+
+  const fetchBountyActivity = async (
+    bountyId: string,
+  ): Promise<BountyActivity[]> => {
+    if (!currentUser) return [];
+    try {
+      const res = await fetch(
+        `${backendUrl}/api/bounties/${bountyId}/activity`,
+        { headers: getAuthHeaders() },
+      );
+      if (!res.ok) throw new Error("Failed to fetch activity");
+      return await res.json();
+    } catch (error) {
+      console.error("Failed to fetch bounty activity:", error);
+      return [];
     }
   };
 
@@ -4029,6 +4048,7 @@ export function BountyProvider({ children }: { children: React.ReactNode }) {
         statusCounts,
         unpaidDoneCount,
         fetchBountyById,
+        fetchBountyActivity,
         applyToBounty,
         editBounty,
         users,
@@ -4166,3 +4186,5 @@ export function useBounty() {
   }
   return context;
 }
+
+[executed on device: ayobami-Latitude-7490 (7d1414a3-3c53-4ca4-bd2e-0634cf62f6c1)]
