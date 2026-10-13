@@ -1,7 +1,7 @@
 const express = require("express");
 const prisma = require("../prisma/client");
 const { authenticate, isAdmin } = require("../middleware/auth");
-const { delCache } = require("../utils/cache");
+const { delCache, bumpVersion } = require("../utils/cache");
 const { userIdentityWhere } = require("../utils/userIdentity");
 const {
   assignedDoneWhere,
@@ -624,6 +624,9 @@ router.patch("/me/profile", authenticate, async (req, res) => {
     });
 
     await delCache("users:all").catch(() => {});
+    if (profileVisibility !== undefined) {
+      await bumpVersion("profiles").catch(() => {});
+    }
 
     res.json({
       id: updated.id,

@@ -33,8 +33,10 @@ export default function AdminLeaderboardPage() {
   const myEntry = leaderboard.find(isMe);
 
   // `zec` is the raw ZEC amount; alternates with USD when a price is available.
-  const formatEarned = (zec: number) =>
-    `${zec.toLocaleString(undefined, { maximumFractionDigits: 4 })} ZEC`;
+  const formatEarned = (zec: number | null | undefined) =>
+    zec == null
+      ? "Private"
+      : `${zec.toLocaleString(undefined, { maximumFractionDigits: 4 })} ZEC`;
 
   const displayNameFor = (entry: (typeof leaderboard)[number]) =>
     entry.nickname || entry.name;
@@ -90,7 +92,9 @@ export default function AdminLeaderboardPage() {
                 <span className="font-bold text-primary">#{myEntry.rank}</span>{" "}
                 <span className="hidden md:inline">
                   {" "}
-                  with {myEntry.points.toLocaleString()} pts
+                  {myEntry.points == null
+                    ? "with private stats"
+                    : `with ${myEntry.points.toLocaleString()} pts`}
                 </span>
               </p>
             ) : currentUser ? (
@@ -182,11 +186,15 @@ export default function AdminLeaderboardPage() {
                         </h3>
                         <div className="flex items-center justify-center gap-1 text-sm text-muted-foreground mb-4">
                           <Target className="h-3 w-3" />
-                          <span>{entry.completed} Bounties</span>
+                          <span>
+                            {entry.completed == null
+                              ? "Private"
+                              : `${entry.completed} Bounties`}
+                          </span>
                         </div>
                         <div className="flex items-center justify-center gap-1.5 mb-4">
                           <BadgeIcons
-                            completed={entry.completed}
+                            completed={entry.completed ?? 0}
                             badges={entry.badges}
                             role={entry.role}
                           />
@@ -273,14 +281,16 @@ export default function AdminLeaderboardPage() {
                             <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
                               <span className="hidden md:flex items-center gap-1">
                                 <BadgeIcons
-                                  completed={entry.completed}
+                                  completed={entry.completed ?? 0}
                                   badges={entry.badges}
                                   role={entry.role}
                                 />
                               </span>
                               <span className="flex items-center gap-1">
-                                <Target className="h-3 w-3" /> {entry.completed}{" "}
-                                Completed
+                                <Target className="h-3 w-3" />{" "}
+                                {entry.completed == null
+                                  ? "Private"
+                                  : `${entry.completed} Completed`}
                               </span>
                             </div>
                           </div>
